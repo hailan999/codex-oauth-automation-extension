@@ -21,6 +21,10 @@ test('background imports step registry and shared step definitions', () => {
   assert.match(source, /background\/steps\/paypal-approve\.js/);
   assert.match(source, /background\/steps\/gopay-approve\.js/);
   assert.match(source, /background\/steps\/plus-return-confirm\.js/);
+  assert.match(source, /background\/steps\/save-chatgpt-session\.js/);
+  assert.match(source, /'save-chatgpt-session': \(state\) => saveChatGptSessionExecutor\.executeSaveChatGptSession\(state\)/);
+  assert.match(source, /normalizeFlowStepLimit\(state\?\.flowStepLimit\) === FLOW_STEP_LIMIT_SIGNUP/);
+  assert.match(source, /buildStepRegistry\(getStepDefinitionsForState\(state\)\)/);
 });
 
 

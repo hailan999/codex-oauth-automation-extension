@@ -1,5 +1,6 @@
 import importlib.util
 import io
+import json
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -169,6 +170,31 @@ class HotmailHelperLoggingTest(unittest.TestCase):
         self.assertTrue(all(" " not in url for url in captured_urls))
         self.assertIn("%24orderby=receivedDateTime+desc", captured_urls[0])
         self.assertIn("%24orderby=ReceivedDateTime+desc", captured_urls[1])
+
+    def test_sync_chatgpt_session_snapshots_writes_json_file(self):
+        target = Path(__file__).resolve().parents[1] / "data" / ".test-chatgpt-session-snapshots.json"
+        try:
+            with mock.patch.object(hotmail_helper, "CHATGPT_SESSION_SNAPSHOT_PATH", str(target)):
+                file_path = hotmail_helper.sync_chatgpt_session_snapshots({
+                    "snapshots": [{
+                        "id": "saved@example.com:1",
+                        "savedAt": "2026-05-06T00:00:00Z",
+                        "accountIdentifierType": "email",
+                        "accountIdentifier": "saved@example.com",
+                        "email": "saved@example.com",
+                        "password": "pw",
+                        "sessionStatus": 200,
+                        "session": {"user": {"email": "saved@example.com"}},
+                    }],
+                })
+
+            self.assertEqual(file_path, str(target))
+            payload = json.loads(target.read_text(encoding="utf-8"))
+            self.assertEqual(payload["count"], 1)
+            self.assertEqual(payload["snapshots"][0]["email"], "saved@example.com")
+            self.assertEqual(payload["snapshots"][0]["session"]["user"]["email"], "saved@example.com")
+        finally:
+            target.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

@@ -65,6 +65,7 @@ FETCH_LIMIT_DEFAULT = 5
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 ACCOUNT_LOG_PATH = os.path.join(BASE_DIR, "data", "account-run-history.txt")
 ACCOUNT_RECORDS_SNAPSHOT_PATH = os.path.join(BASE_DIR, "data", "account-run-history.json")
+CHATGPT_SESSION_SNAPSHOT_PATH = os.path.join(BASE_DIR, "data", "chatgpt-session-snapshots.json")
 ACCOUNT_RECORDS_LOCK = threading.Lock()
 
 
@@ -312,6 +313,64 @@ def sync_account_run_records(payload):
             json.dump(normalized_payload, handle, ensure_ascii=False, indent=2)
             handle.write("\n")
     return ACCOUNT_RECORDS_SNAPSHOT_PATH
+
+
+def normalize_chatgpt_session_snapshot(snapshot):
+    if not isinstance(snapshot, dict):
+        return None
+
+    session = snapshot.get("session")
+    if not isinstance(session, dict):
+        return None
+
+    saved_at = str(snapshot.get("savedAt") or "").strip() or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    account_identifier = str(snapshot.get("accountIdentifier") or snapshot.get("email") or snapshot.get("phoneNumber") or "").strip()
+    if not account_identifier:
+        user = session.get("user") if isinstance(session.get("user"), dict) else {}
+        account_identifier = str(user.get("email") or "").strip()
+
+    return {
+        "id": str(snapshot.get("id") or f"{account_identifier or 'chatgpt'}:{int(time.time() * 1000)}").strip(),
+        "savedAt": saved_at,
+        "accountIdentifierType": str(snapshot.get("accountIdentifierType") or "").strip(),
+        "accountIdentifier": account_identifier,
+        "email": str(snapshot.get("email") or "").strip(),
+        "phoneNumber": str(snapshot.get("phoneNumber") or "").strip(),
+        "password": str(snapshot.get("password") or ""),
+        "sessionStatus": int(snapshot.get("sessionStatus") or 0),
+        "session": session,
+    }
+
+
+def normalize_chatgpt_session_snapshot_payload(payload):
+    if not isinstance(payload, dict):
+        raise RuntimeError("Invalid ChatGPT session snapshot payload")
+
+    raw_snapshots = payload.get("snapshots")
+    if not isinstance(raw_snapshots, list):
+        raw_snapshots = payload.get("records") if isinstance(payload.get("records"), list) else []
+
+    snapshots = []
+    for item in raw_snapshots:
+        normalized = normalize_chatgpt_session_snapshot(item)
+        if normalized:
+            snapshots.append(normalized)
+
+    return {
+        "generatedAt": str(payload.get("generatedAt") or "").strip() or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "count": len(snapshots),
+        "snapshots": snapshots,
+    }
+
+
+def sync_chatgpt_session_snapshots(payload):
+    normalized_payload = normalize_chatgpt_session_snapshot_payload(payload)
+    os.makedirs(os.path.dirname(CHATGPT_SESSION_SNAPSHOT_PATH), exist_ok=True)
+    with ACCOUNT_RECORDS_LOCK:
+        with open(CHATGPT_SESSION_SNAPSHOT_PATH, "w", encoding="utf-8") as handle:
+            json.dump(normalized_payload, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+    return CHATGPT_SESSION_SNAPSHOT_PATH
 
 
 def try_refresh_access_token(endpoint, client_id, refresh_token):
@@ -819,6 +878,15 @@ class HotmailHelperHandler(BaseHTTPRequestHandler):
                 })
                 return
 
+            if self.path == "/sync-chatgpt-session-snapshots":
+                file_path = sync_chatgpt_session_snapshots(payload)
+                log_info(f"chatgpt session snapshots synced file={file_path}")
+                json_response(self, 200, {
+                    "ok": True,
+                    "filePath": file_path,
+                })
+                return
+
             if self.path == "/append-account-log":
                 file_path = append_account_log(
                     payload.get("email"),
@@ -885,6 +953,7 @@ def main():
     print(f"Hotmail helper listening on http://{HOST}:{PORT}", flush=True)
     print(f"Account log file: {ACCOUNT_LOG_PATH}", flush=True)
     print(f"Account snapshot file: {ACCOUNT_RECORDS_SNAPSHOT_PATH}", flush=True)
+    print(f"ChatGPT session snapshot file: {CHATGPT_SESSION_SNAPSHOT_PATH}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

@@ -112,6 +112,22 @@ test('step definitions module exposes ordered normal and Plus step metadata', ()
   assert.equal(api.getLastStepId({ plusModeEnabled: true, plusPaymentMethod: 'gpc-helper' }), 13);
   assert.equal(gpcSteps[5].title, '创建 GPC 订单');
   assert.equal(gpcSteps[6].title, 'GPC OTP/PIN 验证');
+
+  const signupOnlySteps = api.getSteps({ flowStepLimit: 'signup' });
+  assert.deepStrictEqual(
+    signupOnlySteps.map((step) => step.key),
+    [
+      'open-chatgpt',
+      'submit-signup-email',
+      'fill-password',
+      'fetch-signup-code',
+      'fill-profile',
+      'wait-registration-success',
+      'save-chatgpt-session',
+    ]
+  );
+  assert.deepStrictEqual(api.getStepIds({ flowStepLimit: 'signup' }), [1, 2, 3, 4, 5, 6, 7]);
+  assert.equal(api.getLastStepId({ flowStepLimit: 'signup' }), 7);
 });
 
 test('sidepanel html loads shared step definitions before sidepanel bootstrap', () => {
@@ -128,6 +144,8 @@ test('sidepanel html exposes Plus mode, PayPal, and GoPay settings', () => {
   const html = fs.readFileSync('sidepanel/sidepanel.html', 'utf8');
   assert.match(html, /id="input-plus-mode-enabled"/);
   assert.match(html, /id="select-plus-payment-method"/);
+  assert.match(html, /id="select-flow-step-limit"/);
+  assert.match(html, /<option value="signup">仅注册\+保存<\/option>/);
   assert.match(html, /id="select-paypal-account"/);
   assert.match(html, /id="btn-add-paypal-account"/);
   assert.match(html, /id="input-gopay-phone"/);

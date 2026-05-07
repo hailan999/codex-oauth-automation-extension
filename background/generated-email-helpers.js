@@ -70,10 +70,20 @@
         requireDomain = false,
       } = options;
       const config = getCloudflareTempEmailConfig(state);
-      if (!config.baseUrl) {
+      if (config.useDirectKv) {
+        if (!config.cfApiToken) {
+          throw new Error('Cloudflare Temp Email KV 直读缺少 API Token。');
+        }
+        if (!config.cfAccountId) {
+          throw new Error('Cloudflare Temp Email KV 直读缺少 Account ID。');
+        }
+        if (!config.kvNamespaceId) {
+          throw new Error('Cloudflare Temp Email KV 直读缺少 KV Namespace ID。');
+        }
+      } else if (!config.baseUrl) {
         throw new Error('Cloudflare Temp Email 服务地址为空或格式无效。');
       }
-      if (requireAdminAuth && !config.adminAuth) {
+      if (!config.useDirectKv && requireAdminAuth && !config.adminAuth) {
         throw new Error('Cloudflare Temp Email 缺少 Admin Auth。');
       }
       if (requireDomain && !config.domain) {
@@ -146,6 +156,13 @@
         requireDomain: true,
       });
       const requestedName = String(options.localPart || options.name || '').trim().toLowerCase() || generateCloudflareAliasLocalPart();
+      if (config.useDirectKv) {
+        const address = normalizeCloudflareTempEmailAddress(`${requestedName}@${config.domain}`);
+        await setEmailState(address);
+        await addLog(`Cloudflare Temp Email KV：已生成 ${address}`, 'ok');
+        return address;
+      }
+
       const payload = {
         enablePrefix: true,
         enableRandomSubdomain: Boolean(config.useRandomSubdomain),

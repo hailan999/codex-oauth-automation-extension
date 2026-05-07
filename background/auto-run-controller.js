@@ -410,6 +410,7 @@
               vpsPassword: prevState.vpsPassword,
               customPassword: prevState.customPassword,
               plusModeEnabled: prevState.plusModeEnabled,
+              flowStepLimit: prevState.flowStepLimit,
               paypalEmail: prevState.paypalEmail,
               paypalPassword: prevState.paypalPassword,
               autoRunSkipFailures: prevState.autoRunSkipFailures,

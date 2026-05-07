@@ -2129,6 +2129,10 @@ header {
   text-align: right;
 }
 
+.setting-caption[for] {
+  cursor: pointer;
+}
+
 .setting-controls {
   display: flex;
   align-items: center;

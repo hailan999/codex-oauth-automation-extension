@@ -7,6 +7,9 @@
   const PLUS_PAYMENT_STEP_KEY = 'paypal-approve';
   const SIGNUP_METHOD_EMAIL = 'email';
   const SIGNUP_METHOD_PHONE = 'phone';
+  const FLOW_STEP_LIMIT_FULL = 'full';
+  const FLOW_STEP_LIMIT_SIGNUP = 'signup';
+  const SIGNUP_SESSION_STEP_DEFINITION = { id: 7, order: 70, key: 'save-chatgpt-session', title: '保存 ChatGPT Session' };
 
   const NORMAL_STEP_DEFINITIONS = [
     { id: 1, order: 10, key: 'open-chatgpt', title: '打开 ChatGPT 官网' },
@@ -88,6 +91,12 @@
       : SIGNUP_METHOD_EMAIL;
   }
 
+  function normalizeFlowStepLimit(value = '') {
+    return String(value || '').trim().toLowerCase() === FLOW_STEP_LIMIT_SIGNUP
+      ? FLOW_STEP_LIMIT_SIGNUP
+      : FLOW_STEP_LIMIT_FULL;
+  }
+
   function getResolvedSignupMethod(options = {}) {
     return normalizeSignupMethod(options?.resolvedSignupMethod || options?.signupMethod);
   }
@@ -126,7 +135,14 @@
   }
 
   function cloneSteps(steps = [], options = {}) {
-    return steps.map((step) => ({
+    const flowStepLimit = normalizeFlowStepLimit(options?.flowStepLimit || options?.stepLimit || options?.flowScope);
+    const filteredSteps = flowStepLimit === FLOW_STEP_LIMIT_SIGNUP
+      ? [
+        ...NORMAL_STEP_DEFINITIONS.filter((step) => Number(step?.id) <= 6),
+        SIGNUP_SESSION_STEP_DEFINITION,
+      ]
+      : steps;
+    return filteredSteps.map((step) => ({
       ...step,
       title: getResolvedStepTitle(step, options),
     }));
@@ -155,7 +171,14 @@
   }
 
   function getStepIds(options = {}) {
-    return getModeStepDefinitions(options)
+    const flowStepLimit = normalizeFlowStepLimit(options?.flowStepLimit || options?.stepLimit || options?.flowScope);
+    const steps = flowStepLimit === FLOW_STEP_LIMIT_SIGNUP
+      ? [
+        ...NORMAL_STEP_DEFINITIONS.filter((step) => Number(step?.id) <= 6),
+        SIGNUP_SESSION_STEP_DEFINITION,
+      ]
+      : getModeStepDefinitions(options);
+    return steps
       .map((step) => Number(step.id))
       .filter(Number.isFinite)
       .sort((left, right) => left - right);
@@ -168,8 +191,7 @@
 
   function getStepById(id, options = {}) {
     const numericId = Number(id);
-    const match = getModeStepDefinitions(options).find((step) => step.id === numericId);
-    return match ? cloneSteps([match], options)[0] : null;
+    return getSteps(options).find((step) => step.id === numericId) || null;
   }
 
   return {
@@ -181,6 +203,8 @@
     PLUS_GPC_STEP_DEFINITIONS,
     SIGNUP_METHOD_EMAIL,
     SIGNUP_METHOD_PHONE,
+    FLOW_STEP_LIMIT_FULL,
+    FLOW_STEP_LIMIT_SIGNUP,
     getAllSteps,
     getLastStepId,
     getPlusPaymentStepTitle,
@@ -188,6 +212,7 @@
     getStepIds,
     getSteps,
     isPlusModeEnabled,
+    normalizeFlowStepLimit,
     normalizePlusPaymentMethod,
     normalizeSignupMethod,
   };

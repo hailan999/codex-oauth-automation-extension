@@ -174,6 +174,8 @@ const rowPlusMode = document.getElementById('row-plus-mode');
 const inputPlusModeEnabled = document.getElementById('input-plus-mode-enabled');
 const rowPlusPaymentMethod = document.getElementById('row-plus-payment-method');
 const selectPlusPaymentMethod = document.getElementById('select-plus-payment-method');
+const rowFlowStepLimit = document.getElementById('row-flow-step-limit');
+const selectFlowStepLimit = document.getElementById('select-flow-step-limit');
 const btnGpcCardKeyPurchase = document.getElementById('btn-gpc-card-key-purchase');
 const plusPaymentMethodCaption = document.getElementById('plus-payment-method-caption');
 const rowPayPalAccount = document.getElementById('row-paypal-account');
@@ -246,6 +248,16 @@ const rowTempEmailCustomAuth = document.getElementById('row-temp-email-custom-au
 const inputTempEmailCustomAuth = document.getElementById('input-temp-email-custom-auth');
 const rowTempEmailReceiveMailbox = document.getElementById('row-temp-email-receive-mailbox');
 const inputTempEmailReceiveMailbox = document.getElementById('input-temp-email-receive-mailbox');
+const rowTempEmailDirectKvToggle = document.getElementById('row-temp-email-direct-kv-toggle');
+const inputTempEmailUseDirectKv = document.getElementById('input-temp-email-use-direct-kv');
+const rowTempEmailCfApiToken = document.getElementById('row-temp-email-cf-api-token');
+const inputTempEmailCfApiToken = document.getElementById('input-temp-email-cf-api-token');
+const rowTempEmailCfAccountId = document.getElementById('row-temp-email-cf-account-id');
+const inputTempEmailCfAccountId = document.getElementById('input-temp-email-cf-account-id');
+const rowTempEmailKvNamespaceId = document.getElementById('row-temp-email-kv-namespace-id');
+const inputTempEmailKvNamespaceId = document.getElementById('input-temp-email-kv-namespace-id');
+const rowTempEmailKvDeleteToggle = document.getElementById('row-temp-email-kv-delete-toggle');
+const inputTempEmailKvDeleteAfterRead = document.getElementById('input-temp-email-kv-delete-after-read');
 const rowTempEmailRandomSubdomainToggle = document.getElementById('row-temp-email-random-subdomain-toggle');
 const inputTempEmailUseRandomSubdomain = document.getElementById('input-temp-email-use-random-subdomain');
 const rowTempEmailDomain = document.getElementById('row-temp-email-domain');
@@ -489,9 +501,12 @@ const DEFAULT_PLUS_PAYMENT_METHOD = PLUS_PAYMENT_METHOD_PAYPAL;
 const SIGNUP_METHOD_EMAIL = 'email';
 const SIGNUP_METHOD_PHONE = 'phone';
 const DEFAULT_SIGNUP_METHOD = SIGNUP_METHOD_EMAIL;
+const FLOW_STEP_LIMIT_FULL = 'full';
+const FLOW_STEP_LIMIT_SIGNUP = 'signup';
 let currentPlusModeEnabled = false;
 let currentPlusPaymentMethod = DEFAULT_PLUS_PAYMENT_METHOD;
 let currentSignupMethod = DEFAULT_SIGNUP_METHOD;
+let currentFlowStepLimit = FLOW_STEP_LIMIT_FULL;
 let heroSmsCountrySelectionOrder = [];
 let phoneSmsProviderOrderSelection = [];
 let heroSmsCountryMenuSearchKeyword = '';
@@ -766,10 +781,14 @@ function getStepDefinitionsForMode(plusModeEnabled = false, options = {}) {
   const rawSignupMethod = typeof options === 'string'
     ? currentSignupMethod
     : (options.signupMethod || currentSignupMethod || DEFAULT_SIGNUP_METHOD);
+  const rawFlowStepLimit = typeof options === 'string'
+    ? currentFlowStepLimit
+    : (options.flowStepLimit || currentFlowStepLimit || FLOW_STEP_LIMIT_FULL);
   return (window.MultiPageStepDefinitions?.getSteps?.({
     plusModeEnabled,
     plusPaymentMethod: normalizePlusPaymentMethod(rawPaymentMethod),
     signupMethod: normalizeSignupMethod(rawSignupMethod),
+    flowStepLimit: normalizeFlowStepLimit(rawFlowStepLimit),
   }) || [])
     .sort((left, right) => {
       const leftOrder = Number.isFinite(left.order) ? left.order : left.id;
@@ -788,11 +807,16 @@ function rebuildStepDefinitionState(plusModeEnabled = false, options = {}) {
   const rawSignupMethod = typeof options === 'string'
     ? currentSignupMethod
     : (options.signupMethod || currentSignupMethod || DEFAULT_SIGNUP_METHOD);
+  const rawFlowStepLimit = typeof options === 'string'
+    ? currentFlowStepLimit
+    : (options.flowStepLimit || currentFlowStepLimit || FLOW_STEP_LIMIT_FULL);
   currentPlusPaymentMethod = normalizePlusPaymentMethod(rawPaymentMethod);
   currentSignupMethod = normalizeSignupMethod(rawSignupMethod);
+  currentFlowStepLimit = normalizeFlowStepLimit(rawFlowStepLimit);
   stepDefinitions = getStepDefinitionsForMode(currentPlusModeEnabled, {
     plusPaymentMethod: currentPlusPaymentMethod,
     signupMethod: currentSignupMethod,
+    flowStepLimit: currentFlowStepLimit,
   });
   STEP_IDS = stepDefinitions.map((step) => Number(step.id)).filter(Number.isFinite);
   STEP_DEFAULT_STATUSES = Object.fromEntries(STEP_IDS.map((stepId) => [stepId, 'pending']));
@@ -2664,6 +2688,21 @@ function applyCloudflareTempEmailSettingsState(state = {}) {
   inputTempEmailAdminAuth.value = state?.cloudflareTempEmailAdminAuth || '';
   inputTempEmailCustomAuth.value = state?.cloudflareTempEmailCustomAuth || '';
   inputTempEmailReceiveMailbox.value = state?.cloudflareTempEmailReceiveMailbox || '';
+  if (typeof inputTempEmailUseDirectKv !== 'undefined' && inputTempEmailUseDirectKv) {
+    inputTempEmailUseDirectKv.checked = Boolean(state?.cloudflareTempEmailUseDirectKv);
+  }
+  if (typeof inputTempEmailCfApiToken !== 'undefined' && inputTempEmailCfApiToken) {
+    inputTempEmailCfApiToken.value = state?.cloudflareTempEmailCfApiToken || '';
+  }
+  if (typeof inputTempEmailCfAccountId !== 'undefined' && inputTempEmailCfAccountId) {
+    inputTempEmailCfAccountId.value = state?.cloudflareTempEmailCfAccountId || '';
+  }
+  if (typeof inputTempEmailKvNamespaceId !== 'undefined' && inputTempEmailKvNamespaceId) {
+    inputTempEmailKvNamespaceId.value = state?.cloudflareTempEmailKvNamespaceId || '';
+  }
+  if (typeof inputTempEmailKvDeleteAfterRead !== 'undefined' && inputTempEmailKvDeleteAfterRead) {
+    inputTempEmailKvDeleteAfterRead.checked = Boolean(state?.cloudflareTempEmailKvDeleteAfterRead);
+  }
   if (inputTempEmailUseRandomSubdomain) {
     inputTempEmailUseRandomSubdomain.checked = Boolean(state?.cloudflareTempEmailUseRandomSubdomain);
   }
@@ -3314,6 +3353,11 @@ function collectSettingsPayload() {
     cloudflareTempEmailAdminAuth: inputTempEmailAdminAuth.value,
     cloudflareTempEmailCustomAuth: inputTempEmailCustomAuth.value,
     cloudflareTempEmailReceiveMailbox: normalizeCloudflareTempEmailReceiveMailboxValue(inputTempEmailReceiveMailbox.value),
+    cloudflareTempEmailUseDirectKv: Boolean(typeof inputTempEmailUseDirectKv !== 'undefined' && inputTempEmailUseDirectKv?.checked),
+    cloudflareTempEmailCfApiToken: typeof inputTempEmailCfApiToken !== 'undefined' ? (inputTempEmailCfApiToken?.value || '') : '',
+    cloudflareTempEmailCfAccountId: typeof inputTempEmailCfAccountId !== 'undefined' ? (inputTempEmailCfAccountId?.value || '') : '',
+    cloudflareTempEmailKvNamespaceId: typeof inputTempEmailKvNamespaceId !== 'undefined' ? (inputTempEmailKvNamespaceId?.value || '') : '',
+    cloudflareTempEmailKvDeleteAfterRead: Boolean(typeof inputTempEmailKvDeleteAfterRead !== 'undefined' && inputTempEmailKvDeleteAfterRead?.checked),
     cloudflareTempEmailUseRandomSubdomain: Boolean(inputTempEmailUseRandomSubdomain?.checked),
     cloudflareTempEmailDomain: selectedCloudflareTempEmailDomain,
     cloudflareTempEmailDomains: tempEmailDomains,
@@ -3327,6 +3371,7 @@ function collectSettingsPayload() {
       : true,
     phoneVerificationEnabled: Boolean(inputPhoneVerificationEnabled?.checked),
     signupMethod: selectedSignupMethod,
+    flowStepLimit: normalizeFlowStepLimit(selectFlowStepLimit?.value || currentFlowStepLimit),
     phoneSmsProvider: phoneSmsProviderValue,
     phoneSmsProviderOrder: phoneSmsProviderOrderValue,
     verificationResendCount: normalizeVerificationResendCount(
@@ -6779,6 +6824,16 @@ function normalizeSignupMethod(value = '') {
     : 'email';
 }
 
+function normalizeFlowStepLimit(value = '') {
+  const rootScope = typeof window !== 'undefined' ? window : globalThis;
+  if (rootScope.MultiPageStepDefinitions?.normalizeFlowStepLimit) {
+    return rootScope.MultiPageStepDefinitions.normalizeFlowStepLimit(value);
+  }
+  return String(value || '').trim().toLowerCase() === FLOW_STEP_LIMIT_SIGNUP
+    ? FLOW_STEP_LIMIT_SIGNUP
+    : FLOW_STEP_LIMIT_FULL;
+}
+
 function normalizePanelMode(value = '') {
   const normalized = String(value || '').trim().toLowerCase();
   if (normalized === 'sub2api' || normalized === 'codex2api') {
@@ -7673,6 +7728,7 @@ function syncStepDefinitionsForMode(plusModeEnabled = false, plusPaymentMethodOr
     ? plusPaymentMethodOrOptions
     : (options.plusPaymentMethod || getSelectedPlusPaymentMethod(latestState));
   const nextSignupMethod = normalizeSignupMethod(options.signupMethod || currentSignupMethod || DEFAULT_SIGNUP_METHOD);
+  const nextFlowStepLimit = normalizeFlowStepLimit(options.flowStepLimit || currentFlowStepLimit || FLOW_STEP_LIMIT_FULL);
   const nextPaymentMethod = normalizePlusPaymentMethod(rawPaymentMethod);
   const rootScope = typeof window !== 'undefined' ? window : globalThis;
   const currentPaymentStep = stepDefinitions.find((step) => step.key === 'paypal-approve');
@@ -7680,12 +7736,14 @@ function syncStepDefinitionsForMode(plusModeEnabled = false, plusPaymentMethodOr
     plusModeEnabled: nextPlusModeEnabled,
     plusPaymentMethod: nextPaymentMethod,
     signupMethod: nextSignupMethod,
+    flowStepLimit: nextFlowStepLimit,
   });
   const paymentTitleChanged = Boolean(nextPlusModeEnabled && currentPaymentStep && nextPaymentTitle && currentPaymentStep.title !== nextPaymentTitle);
   const shouldRender = Boolean(options.render)
     || nextPlusModeEnabled !== currentPlusModeEnabled
     || nextPaymentMethod !== currentPlusPaymentMethod
     || nextSignupMethod !== currentSignupMethod
+    || nextFlowStepLimit !== currentFlowStepLimit
     || paymentTitleChanged;
   if (!shouldRender) {
     return;
@@ -7694,6 +7752,7 @@ function syncStepDefinitionsForMode(plusModeEnabled = false, plusPaymentMethodOr
   rebuildStepDefinitionState(nextPlusModeEnabled, {
     plusPaymentMethod: nextPaymentMethod,
     signupMethod: nextSignupMethod,
+    flowStepLimit: nextFlowStepLimit,
   });
   renderStepsList();
 }
@@ -7707,6 +7766,7 @@ function applySettingsState(state) {
     syncStepDefinitionsForMode(Boolean(state?.plusModeEnabled), {
       plusPaymentMethod: state?.plusPaymentMethod,
       signupMethod: state?.signupMethod,
+      flowStepLimit: state?.flowStepLimit,
     });
   }
   const fallbackIpProxyService = '711proxy';
@@ -7769,6 +7829,9 @@ function applySettingsState(state) {
   }
   if (typeof selectPlusPaymentMethod !== 'undefined' && selectPlusPaymentMethod) {
     selectPlusPaymentMethod.value = normalizePlusPaymentMethod(state?.plusPaymentMethod);
+  }
+  if (typeof selectFlowStepLimit !== 'undefined' && selectFlowStepLimit) {
+    selectFlowStepLimit.value = normalizeFlowStepLimit(state?.flowStepLimit);
   }
   if (typeof inputGpcHelperApi !== 'undefined' && inputGpcHelperApi) {
     const defaultGpcHelperApiUrl = typeof DEFAULT_GPC_HELPER_API_URL !== 'undefined'
@@ -9210,6 +9273,9 @@ function updateMailProviderUI() {
   if (typeof rowCustomMailProviderPool !== 'undefined' && rowCustomMailProviderPool) {
     rowCustomMailProviderPool.style.display = useCustomEmail ? '' : 'none';
   }
+  if (typeof rowFlowStepLimit !== 'undefined' && rowFlowStepLimit) {
+    rowFlowStepLimit.style.display = useMail2925AccountPool ? 'none' : '';
+  }
   rowEmailPrefix.style.display = useGeneratedAlias && !useMail2925AccountPool ? '' : 'none';
   const hotmailServiceMode = getSelectedHotmailServiceMode();
   rowInbucketHost.style.display = useInbucket ? '' : 'none';
@@ -9220,7 +9286,10 @@ function updateMailProviderUI() {
   const useCloudflareTempEmailGenerator = selectedGenerator === 'cloudflare-temp-email';
   const showCloudflareDomain = useEmailGenerator && useCloudflare;
   const showCloudflareTempEmailSettings = useCloudflareTempEmailProvider || (useEmailGenerator && useCloudflareTempEmailGenerator);
-  const showCloudflareTempEmailReceiveMailbox = useCloudflareTempEmailProvider && !useCloudflareTempEmailGenerator;
+  const useCloudflareTempEmailDirectKv = Boolean(
+    typeof inputTempEmailUseDirectKv !== 'undefined' && inputTempEmailUseDirectKv?.checked
+  );
+  const showCloudflareTempEmailReceiveMailbox = useCloudflareTempEmailProvider && !useCloudflareTempEmailGenerator && !useCloudflareTempEmailDirectKv;
   const selectedIcloudHost = typeof getSelectedIcloudHostPreference === 'function'
     ? getSelectedIcloudHostPreference()
     : (normalizeIcloudHostValue(icloudHostPreferenceValue || latestState?.icloudHostPreference || '')
@@ -9269,10 +9338,25 @@ function updateMailProviderUI() {
   } else {
     setCloudflareDomainEditMode(false, { clearInput: false });
   }
-  rowTempEmailBaseUrl.style.display = showCloudflareTempEmailSettings ? '' : 'none';
-  rowTempEmailAdminAuth.style.display = showCloudflareTempEmailSettings ? '' : 'none';
-  rowTempEmailCustomAuth.style.display = showCloudflareTempEmailSettings ? '' : 'none';
+  rowTempEmailBaseUrl.style.display = showCloudflareTempEmailSettings && !useCloudflareTempEmailDirectKv ? '' : 'none';
+  rowTempEmailAdminAuth.style.display = showCloudflareTempEmailSettings && !useCloudflareTempEmailDirectKv ? '' : 'none';
+  rowTempEmailCustomAuth.style.display = showCloudflareTempEmailSettings && !useCloudflareTempEmailDirectKv ? '' : 'none';
   rowTempEmailReceiveMailbox.style.display = showCloudflareTempEmailReceiveMailbox ? '' : 'none';
+  if (typeof rowTempEmailDirectKvToggle !== 'undefined' && rowTempEmailDirectKvToggle) {
+    rowTempEmailDirectKvToggle.style.display = showCloudflareTempEmailSettings ? '' : 'none';
+  }
+  if (typeof rowTempEmailCfApiToken !== 'undefined' && rowTempEmailCfApiToken) {
+    rowTempEmailCfApiToken.style.display = showCloudflareTempEmailSettings && useCloudflareTempEmailDirectKv ? '' : 'none';
+  }
+  if (typeof rowTempEmailCfAccountId !== 'undefined' && rowTempEmailCfAccountId) {
+    rowTempEmailCfAccountId.style.display = showCloudflareTempEmailSettings && useCloudflareTempEmailDirectKv ? '' : 'none';
+  }
+  if (typeof rowTempEmailKvNamespaceId !== 'undefined' && rowTempEmailKvNamespaceId) {
+    rowTempEmailKvNamespaceId.style.display = showCloudflareTempEmailSettings && useCloudflareTempEmailDirectKv ? '' : 'none';
+  }
+  if (typeof rowTempEmailKvDeleteToggle !== 'undefined' && rowTempEmailKvDeleteToggle) {
+    rowTempEmailKvDeleteToggle.style.display = showCloudflareTempEmailSettings && useCloudflareTempEmailDirectKv ? '' : 'none';
+  }
   if (rowTempEmailRandomSubdomainToggle) {
     rowTempEmailRandomSubdomainToggle.style.display = showCloudflareTempEmailRandomSubdomainToggle ? '' : 'none';
   }
@@ -10596,6 +10680,8 @@ stepsList?.addEventListener('click', async (event) => {
   }
   try {
     const step = Number(btn.dataset.step);
+    const stepKey = String(btn.dataset.stepKey || '').trim();
+    const stepPayload = { step, ...(stepKey ? { stepKey } : {}) };
     if (!(await maybeTakeoverAutoRun(`执行步骤 ${step}`))) {
       return;
     }
@@ -10610,12 +10696,12 @@ stepsList?.addEventListener('click', async (event) => {
         syncLatestState({ customPassword: inputPassword.value });
       }
       if (shouldExecuteStep3WithSignupPhoneIdentity(latestState)) {
-        const response = await chrome.runtime.sendMessage({ type: 'EXECUTE_STEP', source: 'sidepanel', payload: { step } });
+        const response = await chrome.runtime.sendMessage({ type: 'EXECUTE_STEP', source: 'sidepanel', payload: stepPayload });
         if (response?.error) {
           throw new Error(response.error);
         }
       } else if (selectMailProvider.value === 'hotmail-api' || isLuckmailProvider()) {
-        const response = await chrome.runtime.sendMessage({ type: 'EXECUTE_STEP', source: 'sidepanel', payload: { step } });
+        const response = await chrome.runtime.sendMessage({ type: 'EXECUTE_STEP', source: 'sidepanel', payload: stepPayload });
         if (response?.error) {
           throw new Error(response.error);
         }
@@ -10625,7 +10711,7 @@ stepsList?.addEventListener('click', async (event) => {
           showToast(selectMailProvider.value === GMAIL_PROVIDER ? '请先填写 Gmail 原邮箱。' : '请先填写 2925 邮箱前缀。', 'warn');
           return;
         }
-        const response = await chrome.runtime.sendMessage({ type: 'EXECUTE_STEP', source: 'sidepanel', payload: { step, emailPrefix } });
+        const response = await chrome.runtime.sendMessage({ type: 'EXECUTE_STEP', source: 'sidepanel', payload: { ...stepPayload, emailPrefix } });
         if (response?.error) {
           throw new Error(response.error);
         }
@@ -10646,13 +10732,13 @@ stepsList?.addEventListener('click', async (event) => {
         if (!validateCurrentRegistrationEmail(email, { showToastOnFailure: true })) {
           return;
         }
-        const response = await chrome.runtime.sendMessage({ type: 'EXECUTE_STEP', source: 'sidepanel', payload: { step, email } });
+        const response = await chrome.runtime.sendMessage({ type: 'EXECUTE_STEP', source: 'sidepanel', payload: { ...stepPayload, email } });
         if (response?.error) {
           throw new Error(response.error);
         }
       }
     } else {
-      const response = await chrome.runtime.sendMessage({ type: 'EXECUTE_STEP', source: 'sidepanel', payload: { step } });
+      const response = await chrome.runtime.sendMessage({ type: 'EXECUTE_STEP', source: 'sidepanel', payload: stepPayload });
       if (response?.error) {
         throw new Error(response.error);
       }
@@ -11168,6 +11254,17 @@ selectPlusPaymentMethod?.addEventListener('change', () => {
   selectPlusPaymentMethod.value = normalizePlusPaymentMethod(selectPlusPaymentMethod.value);
   updatePlusModeUI();
   syncStepDefinitionsForMode(Boolean(inputPlusModeEnabled?.checked), selectPlusPaymentMethod.value, { render: true });
+  markSettingsDirty(true);
+  saveSettings({ silent: true }).catch(() => { });
+});
+
+selectFlowStepLimit?.addEventListener('change', () => {
+  selectFlowStepLimit.value = normalizeFlowStepLimit(selectFlowStepLimit.value);
+  syncStepDefinitionsForMode(Boolean(inputPlusModeEnabled?.checked), {
+    render: true,
+    plusPaymentMethod: getSelectedPlusPaymentMethod(),
+    flowStepLimit: selectFlowStepLimit.value,
+  });
   markSettingsDirty(true);
   saveSettings({ silent: true }).catch(() => { });
 });
@@ -12083,6 +12180,35 @@ inputTempEmailReceiveMailbox.addEventListener('input', () => {
 });
 inputTempEmailReceiveMailbox.addEventListener('blur', () => {
   inputTempEmailReceiveMailbox.value = normalizeCloudflareTempEmailReceiveMailboxValue(inputTempEmailReceiveMailbox.value);
+  saveSettings({ silent: true }).catch(() => { });
+});
+
+inputTempEmailUseDirectKv?.addEventListener('change', () => {
+  syncLatestState({ cloudflareTempEmailUseDirectKv: Boolean(inputTempEmailUseDirectKv.checked) });
+  updateMailProviderUI();
+  clearRegistrationEmail({ silent: true }).catch(() => { });
+  markSettingsDirty(true);
+  saveSettings({ silent: true }).catch(() => { });
+});
+
+[
+  inputTempEmailCfApiToken,
+  inputTempEmailCfAccountId,
+  inputTempEmailKvNamespaceId,
+].forEach((input) => {
+  input?.addEventListener('input', () => {
+    markSettingsDirty(true);
+    scheduleSettingsAutoSave();
+  });
+  input?.addEventListener('blur', () => {
+    input.value = String(input.value || '').trim();
+    saveSettings({ silent: true }).catch(() => { });
+  });
+});
+
+inputTempEmailKvDeleteAfterRead?.addEventListener('change', () => {
+  syncLatestState({ cloudflareTempEmailKvDeleteAfterRead: Boolean(inputTempEmailKvDeleteAfterRead.checked) });
+  markSettingsDirty(true);
   saveSettings({ silent: true }).catch(() => { });
 });
 
@@ -13041,6 +13167,41 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (message.payload.cloudflareTempEmailReceiveMailbox !== undefined) {
         inputTempEmailReceiveMailbox.value = message.payload.cloudflareTempEmailReceiveMailbox || '';
       }
+      if (
+        message.payload.cloudflareTempEmailUseDirectKv !== undefined
+        && typeof inputTempEmailUseDirectKv !== 'undefined'
+        && inputTempEmailUseDirectKv
+      ) {
+        inputTempEmailUseDirectKv.checked = Boolean(message.payload.cloudflareTempEmailUseDirectKv);
+      }
+      if (
+        message.payload.cloudflareTempEmailCfApiToken !== undefined
+        && typeof inputTempEmailCfApiToken !== 'undefined'
+        && inputTempEmailCfApiToken
+      ) {
+        inputTempEmailCfApiToken.value = message.payload.cloudflareTempEmailCfApiToken || '';
+      }
+      if (
+        message.payload.cloudflareTempEmailCfAccountId !== undefined
+        && typeof inputTempEmailCfAccountId !== 'undefined'
+        && inputTempEmailCfAccountId
+      ) {
+        inputTempEmailCfAccountId.value = message.payload.cloudflareTempEmailCfAccountId || '';
+      }
+      if (
+        message.payload.cloudflareTempEmailKvNamespaceId !== undefined
+        && typeof inputTempEmailKvNamespaceId !== 'undefined'
+        && inputTempEmailKvNamespaceId
+      ) {
+        inputTempEmailKvNamespaceId.value = message.payload.cloudflareTempEmailKvNamespaceId || '';
+      }
+      if (
+        message.payload.cloudflareTempEmailKvDeleteAfterRead !== undefined
+        && typeof inputTempEmailKvDeleteAfterRead !== 'undefined'
+        && inputTempEmailKvDeleteAfterRead
+      ) {
+        inputTempEmailKvDeleteAfterRead.checked = Boolean(message.payload.cloudflareTempEmailKvDeleteAfterRead);
+      }
       if (message.payload.cloudflareTempEmailUseRandomSubdomain !== undefined && inputTempEmailUseRandomSubdomain) {
         inputTempEmailUseRandomSubdomain.checked = Boolean(message.payload.cloudflareTempEmailUseRandomSubdomain);
       }
@@ -13049,6 +13210,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       }
       if (
         message.payload.cloudflareTempEmailUseRandomSubdomain !== undefined
+        || message.payload.cloudflareTempEmailUseDirectKv !== undefined
         || message.payload.cloudflareTempEmailDomain !== undefined
         || message.payload.cloudflareTempEmailDomains !== undefined
       ) {
@@ -13059,6 +13221,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       }
       if (message.payload.plusPaymentMethod !== undefined && selectPlusPaymentMethod) {
         selectPlusPaymentMethod.value = normalizePlusPaymentMethod(message.payload.plusPaymentMethod);
+      }
+      if (message.payload.flowStepLimit !== undefined && selectFlowStepLimit) {
+        selectFlowStepLimit.value = normalizeFlowStepLimit(message.payload.flowStepLimit);
       }
       if (message.payload.gopayHelperOtpChannel !== undefined && selectGpcHelperOtpChannel) {
         selectGpcHelperOtpChannel.value = normalizeGpcOtpChannelValue(message.payload.gopayHelperOtpChannel);
@@ -13081,13 +13246,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (
         message.payload.plusModeEnabled !== undefined
         || message.payload.plusPaymentMethod !== undefined
+        || message.payload.flowStepLimit !== undefined
         || message.payload.gopayHelperOtpChannel !== undefined
         || message.payload.gopayHelperLocalSmsHelperEnabled !== undefined
       ) {
         syncStepDefinitionsForMode(
           Boolean(latestState?.plusModeEnabled),
           latestState?.plusPaymentMethod,
-          { render: true }
+          { render: true, flowStepLimit: latestState?.flowStepLimit }
         );
         updatePlusModeUI();
         updateSignupMethodUI({ notify: true });

@@ -17,7 +17,7 @@
         await addLog(`步骤 6：等待 ${Math.round(waitMs / 1000)} 秒，确认注册成功并让页面稳定...`, 'info');
         await sleepWithStop(waitMs);
       }
-      await addLog('步骤 6：注册成功等待完成，准备继续获取 OAuth 链接并登录。', 'ok');
+      await addLog('步骤 6：注册成功等待完成，准备继续后续步骤。', 'ok');
       await completeStepFromBackground(6);
     }
 

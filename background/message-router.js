@@ -774,6 +774,10 @@
             await ensureManualInteractionAllowed('手动执行步骤');
           }
           const step = message.payload.step;
+          const stepKey = String(message.payload?.stepKey || '').trim();
+          if (stepKey === 'save-chatgpt-session') {
+            await setState({ flowStepLimit: 'signup' });
+          }
           if (message.source === 'sidepanel') {
             await ensureManualStepPrerequisites(step);
           }
@@ -905,6 +909,7 @@
             Object.prototype.hasOwnProperty.call(updates, 'phoneVerificationEnabled')
             || Object.prototype.hasOwnProperty.call(updates, 'plusModeEnabled')
             || Object.prototype.hasOwnProperty.call(updates, 'signupMethod')
+            || Object.prototype.hasOwnProperty.call(updates, 'flowStepLimit')
           ) {
             updates.signupMethod = resolveSignupMethod(nextSignupState);
           }
@@ -917,6 +922,8 @@
             ? Boolean(updates.plusModeEnabled)
             : Boolean(currentState?.plusModeEnabled);
           const stepModeChanged = modeChanged || (nextPlusModeEnabled && plusPaymentChanged);
+          const flowStepLimitChanged = Object.prototype.hasOwnProperty.call(updates, 'flowStepLimit')
+            && String(currentState?.flowStepLimit || 'full') !== String(updates.flowStepLimit || 'full');
           const oauthFlowTimeoutDisabled = Object.prototype.hasOwnProperty.call(updates, 'oauthFlowTimeoutEnabled')
             && updates.oauthFlowTimeoutEnabled === false;
           await setPersistentSettings(updates);
@@ -934,7 +941,7 @@
               ? nextHostPreference
               : '';
           }
-          if (stepModeChanged && typeof getStepIdsForState === 'function') {
+          if ((stepModeChanged || flowStepLimitChanged) && typeof getStepIdsForState === 'function') {
             const nextStateForSteps = { ...currentState, ...stateUpdates };
             stateUpdates.stepStatuses = Object.fromEntries(
               getStepIdsForState(nextStateForSteps).map((stepId) => [stepId, 'pending'])

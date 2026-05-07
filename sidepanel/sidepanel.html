@@ -264,6 +264,16 @@
           <span class="setting-caption" id="plus-payment-method-caption">PayPal 订阅链路</span>
         </div>
       </div>
+      <div class="data-row" id="row-flow-step-limit">
+        <span class="data-label">流程范围</span>
+        <div class="data-inline">
+          <select id="select-flow-step-limit" class="data-select">
+            <option value="full">完整流程</option>
+            <option value="signup">仅注册+保存</option>
+          </select>
+          <span class="setting-caption">控制自动步骤</span>
+        </div>
+      </div>
       <div class="data-row" id="row-paypal-account" style="display:none;">
         <span class="data-label">PayPal 账号</span>
         <div class="data-inline">
@@ -647,6 +657,52 @@
         <span class="data-label">邮件接收</span>
         <input type="text" id="input-temp-email-receive-mailbox" class="data-input"
           placeholder="用于接收转发邮件的邮箱，例如 1@email.example.com" />
+      </div>
+      <div class="data-row" id="row-temp-email-direct-kv-toggle" style="display:none;">
+        <span class="data-label">KV 直读</span>
+        <div class="data-inline">
+          <label class="toggle-switch" for="input-temp-email-use-direct-kv"
+            title="读取 Cloudflare KV 中以收件邮箱为 key 的验证码">
+            <input type="checkbox" id="input-temp-email-use-direct-kv" />
+            <span class="toggle-switch-track" aria-hidden="true">
+              <span class="toggle-switch-thumb"></span>
+            </span>
+            <span>启用</span>
+          </label>
+          <label class="setting-caption" for="input-temp-email-use-direct-kv">Email Worker 写入 KV 后扩展直接读取</label>
+        </div>
+      </div>
+      <div class="data-row" id="row-temp-email-cf-api-token" style="display:none;">
+        <span class="data-label">CF Token</span>
+        <div class="input-with-icon">
+          <input type="password" id="input-temp-email-cf-api-token" class="data-input data-input-with-icon"
+            placeholder="需要 Workers KV Storage Read 权限" />
+          <button id="btn-toggle-temp-email-cf-api-token" class="input-icon-btn" type="button"
+            data-password-toggle="input-temp-email-cf-api-token" data-show-label="显示 CF Token"
+            data-hide-label="隐藏 CF Token" aria-label="显示 CF Token" title="显示 CF Token"></button>
+        </div>
+      </div>
+      <div class="data-row" id="row-temp-email-cf-account-id" style="display:none;">
+        <span class="data-label">Account ID</span>
+        <input type="text" id="input-temp-email-cf-account-id" class="data-input mono"
+          placeholder="Cloudflare Account ID" />
+      </div>
+      <div class="data-row" id="row-temp-email-kv-namespace-id" style="display:none;">
+        <span class="data-label">KV Namespace</span>
+        <input type="text" id="input-temp-email-kv-namespace-id" class="data-input mono"
+          placeholder="OTP_KV namespace ID" />
+      </div>
+      <div class="data-row" id="row-temp-email-kv-delete-toggle" style="display:none;">
+        <span class="data-label">读取后删除</span>
+        <div class="data-inline">
+          <label class="toggle-switch" for="input-temp-email-kv-delete-after-read">
+            <input type="checkbox" id="input-temp-email-kv-delete-after-read" />
+            <span class="toggle-switch-track" aria-hidden="true">
+              <span class="toggle-switch-thumb"></span>
+            </span>
+            <span>启用</span>
+          </label>
+        </div>
       </div>
       <div class="data-row" id="row-temp-email-random-subdomain-toggle" style="display:none;">
         <span class="data-label">随机子域</span>

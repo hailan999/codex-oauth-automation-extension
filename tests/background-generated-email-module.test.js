@@ -362,6 +362,67 @@ test('generated email helper requests random subdomain creation while preserving
   });
 });
 
+test('generated email helper creates local cloudflare temp email address in direct KV mode', async () => {
+  const api = loadGeneratedEmailHelpersApi();
+  const savedEmails = [];
+
+  const helpers = api.createGeneratedEmailHelpers({
+    addLog: async () => {},
+    buildGeneratedAliasEmail: () => {
+      throw new Error('should not build managed alias');
+    },
+    buildCloudflareTempEmailHeaders: () => {
+      throw new Error('should not build temp api headers');
+    },
+    CLOUDFLARE_TEMP_EMAIL_GENERATOR: 'cloudflare-temp-email',
+    DUCK_AUTOFILL_URL: 'https://duckduckgo.com/email',
+    fetch: async () => {
+      throw new Error('should not call temp api in direct KV mode');
+    },
+    fetchIcloudHideMyEmail: async () => {
+      throw new Error('should not use icloud generator');
+    },
+    getCloudflareTempEmailAddressFromResponse: () => '',
+    getCloudflareTempEmailConfig: () => ({
+      useDirectKv: true,
+      cfApiToken: 'token',
+      cfAccountId: 'account',
+      kvNamespaceId: 'namespace',
+      domain: 'mail.example.com',
+    }),
+    getState: async () => ({
+      mailProvider: '163',
+      emailGenerator: 'cloudflare-temp-email',
+    }),
+    ensureMail2925AccountForFlow: async () => {
+      throw new Error('should not allocate mail2925 account');
+    },
+    joinCloudflareTempEmailUrl: () => '',
+    normalizeCloudflareDomain: () => '',
+    normalizeCloudflareTempEmailAddress: (value) => String(value || '').trim().toLowerCase(),
+    normalizeEmailGenerator: (value) => String(value || '').trim().toLowerCase(),
+    isGeneratedAliasProvider: () => false,
+    reuseOrCreateTab: async () => {},
+    sendToContentScript: async () => {
+      throw new Error('should not use duck generator');
+    },
+    setEmailState: async (email) => {
+      savedEmails.push(email);
+    },
+    throwIfStopped: () => {},
+  });
+
+  const email = await helpers.fetchGeneratedEmail({
+    emailGenerator: 'cloudflare-temp-email',
+  }, {
+    generator: 'cloudflare-temp-email',
+    localPart: 'User',
+  });
+
+  assert.equal(email, 'user@mail.example.com');
+  assert.deepEqual(savedEmails, ['user@mail.example.com']);
+});
+
 test('generated email helper honors iCloud always-new fetch mode', async () => {
   const api = loadGeneratedEmailHelpersApi();
   const icloudOptions = [];

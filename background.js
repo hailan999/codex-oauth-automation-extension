@@ -33,6 +33,7 @@ importScripts(
   'background/steps/fetch-signup-code.js',
   'background/steps/fill-profile.js',
   'background/steps/wait-registration-success.js',
+  'background/steps/save-chatgpt-session.js',
   'background/steps/create-plus-checkout.js',
   'background/steps/fill-plus-checkout.js',
   'background/steps/gopay-manual-confirm.js',
@@ -101,6 +102,8 @@ const LAST_STEP_ID = Math.max(
   PLUS_GPC_STEP_IDS[PLUS_GPC_STEP_IDS.length - 1] || 10
 );
 const FINAL_OAUTH_CHAIN_START_STEP = 7;
+const FLOW_STEP_LIMIT_FULL = 'full';
+const FLOW_STEP_LIMIT_SIGNUP = 'signup';
 
 const {
   extractVerificationCodeFromMessage,
@@ -468,6 +471,16 @@ function getSignupMethodForStepDefinitions(state = {}) {
   return normalizeSignupMethod(state?.resolvedSignupMethod || state?.signupMethod);
 }
 
+function normalizeFlowStepLimit(value = '') {
+  const rootScope = typeof self !== 'undefined' ? self : globalThis;
+  if (rootScope.MultiPageStepDefinitions?.normalizeFlowStepLimit) {
+    return rootScope.MultiPageStepDefinitions.normalizeFlowStepLimit(value);
+  }
+  return String(value || '').trim().toLowerCase() === FLOW_STEP_LIMIT_SIGNUP
+    ? FLOW_STEP_LIMIT_SIGNUP
+    : FLOW_STEP_LIMIT_FULL;
+}
+
 function getStepDefinitionsForState(state = {}) {
   const rootScope = typeof self !== 'undefined' ? self : globalThis;
   if (rootScope.MultiPageStepDefinitions?.getSteps) {
@@ -475,6 +488,7 @@ function getStepDefinitionsForState(state = {}) {
       plusModeEnabled: isPlusModeState(state),
       plusPaymentMethod: normalizePlusPaymentMethod(state?.plusPaymentMethod),
       signupMethod: getSignupMethodForStepDefinitions(state),
+      flowStepLimit: normalizeFlowStepLimit(state?.flowStepLimit),
     });
   }
   if (!isPlusModeState(state)) {
@@ -628,6 +642,7 @@ const PERSISTED_SETTING_DEFAULTS = {
   autoRunSkipFailures: false,
   autoRunFallbackThreadIntervalMinutes: 0,
   oauthFlowTimeoutEnabled: true,
+  flowStepLimit: FLOW_STEP_LIMIT_FULL,
   autoRunDelayEnabled: false,
   autoRunDelayMinutes: 30,
   autoStepDelaySeconds: null,
@@ -677,6 +692,11 @@ const PERSISTED_SETTING_DEFAULTS = {
   cloudflareTempEmailAdminAuth: '',
   cloudflareTempEmailCustomAuth: '',
   cloudflareTempEmailReceiveMailbox: '',
+  cloudflareTempEmailUseDirectKv: false,
+  cloudflareTempEmailCfApiToken: '',
+  cloudflareTempEmailCfAccountId: '',
+  cloudflareTempEmailKvNamespaceId: '',
+  cloudflareTempEmailKvDeleteAfterRead: false,
   cloudflareTempEmailUseRandomSubdomain: false,
   cloudflareTempEmailDomain: '',
   cloudflareTempEmailDomains: [],
@@ -824,6 +844,8 @@ const DEFAULT_STATE = {
   autoRunCountdownNote: '',
   signupVerificationRequestedAt: null,
   loginVerificationRequestedAt: null,
+  chatgptSessionSavedAt: '',
+  chatgptSessionFilePath: '',
   oauthFlowDeadlineAt: null,
   oauthFlowDeadlineSourceUrl: null,
   currentPayPalAccountId: null,
@@ -2057,6 +2079,11 @@ function getCloudflareTempEmailConfig(state = {}) {
     adminAuth: String(state.cloudflareTempEmailAdminAuth || ''),
     customAuth: String(state.cloudflareTempEmailCustomAuth || ''),
     receiveMailbox: normalizeCloudflareTempEmailReceiveMailbox(state.cloudflareTempEmailReceiveMailbox),
+    useDirectKv: Boolean(state.cloudflareTempEmailUseDirectKv),
+    cfApiToken: String(state.cloudflareTempEmailCfApiToken || '').trim(),
+    cfAccountId: String(state.cloudflareTempEmailCfAccountId || '').trim(),
+    kvNamespaceId: String(state.cloudflareTempEmailKvNamespaceId || '').trim(),
+    kvDeleteAfterRead: Boolean(state.cloudflareTempEmailKvDeleteAfterRead),
     useRandomSubdomain: Boolean(state.cloudflareTempEmailUseRandomSubdomain),
     domain: normalizeCloudflareTempEmailDomain(state.cloudflareTempEmailDomain),
     domains: normalizeCloudflareTempEmailDomains(state.cloudflareTempEmailDomains),
@@ -2199,6 +2226,8 @@ function normalizePersistentSettingValue(key, value) {
       return String(value || '');
     case 'signupMethod':
       return normalizeSignupMethod(value);
+    case 'flowStepLimit':
+      return normalizeFlowStepLimit(value);
     case 'plusPaymentMethod':
       return normalizePlusPaymentMethod(value);
     case 'paypalEmail':
@@ -2374,9 +2403,15 @@ function normalizePersistentSettingValue(key, value) {
       return normalizeCloudflareTempEmailBaseUrl(value);
     case 'cloudflareTempEmailAdminAuth':
     case 'cloudflareTempEmailCustomAuth':
+    case 'cloudflareTempEmailCfApiToken':
+    case 'cloudflareTempEmailCfAccountId':
+    case 'cloudflareTempEmailKvNamespaceId':
       return String(value || '');
     case 'cloudflareTempEmailReceiveMailbox':
       return normalizeCloudflareTempEmailReceiveMailbox(value);
+    case 'cloudflareTempEmailUseDirectKv':
+    case 'cloudflareTempEmailKvDeleteAfterRead':
+      return Boolean(value);
     case 'cloudflareTempEmailDomain':
       return normalizeCloudflareTempEmailDomain(value);
     case 'cloudflareTempEmailDomains':
@@ -5148,6 +5183,114 @@ async function listCloudflareTempEmailMessages(state, options = {}) {
   return { config, messages };
 }
 
+function buildCloudflareTempEmailKvValueUrl(config, key) {
+  const accountId = encodeURIComponent(String(config.cfAccountId || '').trim());
+  const namespaceId = encodeURIComponent(String(config.kvNamespaceId || '').trim());
+  const keyName = encodeURIComponent(String(key || '').trim().toLowerCase());
+  return `https://api.cloudflare.com/client/v4/accounts/${accountId}/storage/kv/namespaces/${namespaceId}/values/${keyName}`;
+}
+
+async function requestCloudflareTempEmailKvValue(config, key, options = {}) {
+  const method = String(options.method || 'GET').toUpperCase();
+  const response = await fetch(buildCloudflareTempEmailKvValueUrl(config, key), {
+    method,
+    headers: {
+      Authorization: `Bearer ${config.cfApiToken}`,
+      ...(method === 'GET' ? { Accept: 'application/json' } : {}),
+    },
+  });
+
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`Cloudflare KV ${method} 失败：${text || `HTTP ${response.status}`}`);
+  }
+  if (method !== 'GET') {
+    return {};
+  }
+
+  const text = await response.text();
+  try {
+    return text ? JSON.parse(text) : null;
+  } catch {
+    const value = String(text || '').trim();
+    return /^\d{6}$/.test(value) ? { otp: value, ts: 0 } : null;
+  }
+}
+
+async function deleteCloudflareTempEmailKvValue(config, key) {
+  await requestCloudflareTempEmailKvValue(config, key, { method: 'DELETE' });
+}
+
+function normalizeCloudflareTempEmailKvOtpPayload(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+  const code = String(payload.otp || payload.code || '').trim();
+  if (!/^\d{6}$/.test(code)) return null;
+  const rawTs = Number(payload.ts || payload.timestamp || payload.receivedAt || 0);
+  const emailTimestamp = Number.isFinite(rawTs) && rawTs > 0
+    ? (rawTs > 1e10 ? rawTs : rawTs * 1000)
+    : Date.now();
+  return {
+    code,
+    emailTimestamp,
+    from: String(payload.from || ''),
+    subject: String(payload.subject || ''),
+  };
+}
+
+async function pollCloudflareTempEmailKvVerificationCode(step, config, targetEmail, pollPayload = {}) {
+  const maxAttempts = Number(pollPayload.maxAttempts) || 5;
+  const intervalMs = Number(pollPayload.intervalMs) || 3000;
+  const filterAfterTimestamp = Number(pollPayload.filterAfterTimestamp) || 0;
+  const acceptThreshold = filterAfterTimestamp > 0 ? Math.max(0, filterAfterTimestamp - 30000) : 0;
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    throwIfStopped();
+    try {
+      const payload = await requestCloudflareTempEmailKvValue(config, targetEmail);
+      const otp = normalizeCloudflareTempEmailKvOtpPayload(payload);
+      if (otp?.code) {
+        if (acceptThreshold > 0 && otp.emailTimestamp < acceptThreshold) {
+          lastError = new Error(`步骤 ${step}：Cloudflare KV 命中旧验证码，继续等待新邮件（${attempt}/${maxAttempts}）。`);
+          await addLog(lastError.message, attempt === maxAttempts ? 'warn' : 'info');
+        } else if ((pollPayload.excludeCodes || []).includes(otp.code)) {
+          lastError = new Error(`步骤 ${step}：Cloudflare KV 命中已试过的验证码 ${otp.code}，继续等待新邮件（${attempt}/${maxAttempts}）。`);
+          await addLog(lastError.message, attempt === maxAttempts ? 'warn' : 'info');
+        } else {
+          if (config.kvDeleteAfterRead) {
+            try {
+              await deleteCloudflareTempEmailKvValue(config, targetEmail);
+            } catch (err) {
+              await addLog(`步骤 ${step}：删除 Cloudflare KV 验证码失败：${err.message}`, 'warn');
+            }
+          }
+          return {
+            ok: true,
+            code: otp.code,
+            emailTimestamp: otp.emailTimestamp,
+            mailId: targetEmail,
+          };
+        }
+      } else {
+        lastError = new Error(`步骤 ${step}：暂未在 Cloudflare KV 中找到验证码（${attempt}/${maxAttempts}）。`);
+        await addLog(lastError.message, attempt === maxAttempts ? 'warn' : 'info');
+      }
+    } catch (err) {
+      lastError = err;
+      await addLog(`步骤 ${step}：Cloudflare KV 轮询失败：${err.message}`, 'warn');
+    }
+
+    if (attempt < maxAttempts) {
+      await sleepWithStop(intervalMs);
+    }
+  }
+
+  throw lastError || new Error(`步骤 ${step}：未在 Cloudflare KV 中找到新的匹配验证码。`);
+}
+
 async function pollCloudflareTempEmailVerificationCode(step, state, pollPayload = {}) {
   const config = ensureCloudflareTempEmailConfig(state, { requireAdminAuth: true });
   const targetEmail = resolveCloudflareTempEmailPollTargetEmail(state, pollPayload, config);
@@ -5160,6 +5303,10 @@ async function pollCloudflareTempEmailVerificationCode(step, state, pollPayload 
     await addLog(`步骤 ${step}：正在轮询 Cloudflare Temp Email 收件邮箱（${targetEmail}），注册邮箱为 ${registrationEmail}...`, 'info');
   } else {
     await addLog(`步骤 ${step}：正在轮询 Cloudflare Temp Email 邮件（${targetEmail}）...`, 'info');
+  }
+  if (config.useDirectKv) {
+    await addLog(`步骤 ${step}：Cloudflare Temp Email 已启用 KV 直读，按 key=${targetEmail} 轮询验证码...`, 'info');
+    return pollCloudflareTempEmailKvVerificationCode(step, config, targetEmail, pollPayload);
   }
   const maxAttempts = Number(pollPayload.maxAttempts) || 5;
   const intervalMs = Number(pollPayload.intervalMs) || 3000;
@@ -8342,6 +8489,12 @@ async function handleStepData(step, payload) {
       if (payload.loginVerificationRequestedAt) {
         await setState({ loginVerificationRequestedAt: payload.loginVerificationRequestedAt });
       }
+      if (payload.chatgptSessionSavedAt) {
+        await setState({
+          chatgptSessionSavedAt: payload.chatgptSessionSavedAt,
+          chatgptSessionFilePath: payload.chatgptSessionFilePath || '',
+        });
+      }
       break;
     case 4:
       await setState({
@@ -8398,6 +8551,7 @@ const AUTO_RUN_BACKGROUND_COMPLETED_STEP_KEYS = new Set([
   'submit-signup-email',
   'fetch-signup-code',
   'wait-registration-success',
+  'save-chatgpt-session',
   'plus-checkout-create',
   'plus-checkout-billing',
   'paypal-approve',
@@ -10003,6 +10157,12 @@ async function runAutoSequenceFromStep(startStep, context = {}) {
       if (isStopError(err)) {
         throw err;
       }
+      const failedStepKey = typeof getStepDefinitionForState === 'function'
+        ? String(getStepDefinitionForState(step, await getState())?.key || '').trim()
+        : '';
+      if (failedStepKey === 'save-chatgpt-session') {
+        throw err;
+      }
 
       if (step === 8 && isGoPayCheckoutRestartRequiredFailure(err)) {
         goPayCheckoutRestartCount += 1;
@@ -10408,6 +10568,13 @@ const step6Executor = self.MultiPageBackgroundStep6?.createStep6Executor({
   registrationSuccessWaitMs: STEP6_REGISTRATION_SUCCESS_WAIT_MS,
   sleepWithStop,
 });
+const saveChatGptSessionExecutor = self.MultiPageBackgroundSaveChatGptSession?.createSaveChatGptSessionExecutor({
+  addLog,
+  chrome,
+  completeStepFromBackground,
+  fetch: typeof fetch === 'function' ? fetch.bind(globalThis) : null,
+  getState,
+});
 const step7Executor = self.MultiPageBackgroundStep7?.createStep7Executor({
   addLog,
   completeStepFromBackground,
@@ -10568,6 +10735,7 @@ const stepExecutorsByKey = {
   'fetch-signup-code': (state) => step4Executor.executeStep4(state),
   'fill-profile': (state) => step5Executor.executeStep5(state),
   'wait-registration-success': () => step6Executor.executeStep6(),
+  'save-chatgpt-session': (state) => saveChatGptSessionExecutor.executeSaveChatGptSession(state),
   'plus-checkout-create': (state) => plusCheckoutCreateExecutor.executePlusCheckoutCreate(state),
   'plus-checkout-billing': (state) => plusCheckoutBillingExecutor.executePlusCheckoutBilling(state),
   'gopay-subscription-confirm': (state) => goPayManualConfirmExecutor.executeGoPayManualConfirm(state),
@@ -10723,6 +10891,9 @@ const plusGoPayStepRegistry = buildStepRegistry(PLUS_GOPAY_STEP_DEFINITIONS);
 const plusGpcStepRegistry = buildStepRegistry(PLUS_GPC_STEP_DEFINITIONS);
 
 function getStepRegistryForState(state = {}) {
+  if (normalizeFlowStepLimit(state?.flowStepLimit) === FLOW_STEP_LIMIT_SIGNUP) {
+    return buildStepRegistry(getStepDefinitionsForState(state));
+  }
   if (!isPlusModeState(state)) {
     return normalStepRegistry;
   }

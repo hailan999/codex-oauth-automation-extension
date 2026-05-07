@@ -71,6 +71,11 @@ function createProviderApi(options = {}) {
     extractFunction('normalizeCloudflareTempEmailReceiveMailbox'),
     extractFunction('resolveCloudflareTempEmailPollTargetEmail'),
     extractFunction('summarizeCloudflareTempEmailMessagesForLog'),
+    extractFunction('buildCloudflareTempEmailKvValueUrl'),
+    extractFunction('requestCloudflareTempEmailKvValue'),
+    extractFunction('deleteCloudflareTempEmailKvValue'),
+    extractFunction('normalizeCloudflareTempEmailKvOtpPayload'),
+    extractFunction('pollCloudflareTempEmailKvVerificationCode'),
     extractFunction('pollCloudflareTempEmailVerificationCode'),
   ].join('\n');
 
@@ -80,6 +85,7 @@ const STOP_ERROR_MESSAGE = '流程已被用户停止。';
 const CLOUDFLARE_TEMP_EMAIL_DEFAULT_PAGE_SIZE = 20;
 const logs = [];
 const listCalls = [];
+const kvCalls = [];
 const messages = options.messages;
 function normalizeCloudflareTempEmailAddress(value) {
   return String(value || '').trim().toLowerCase();
@@ -89,7 +95,28 @@ async function addLog(message, level) {
 }
 async function sleepWithStop() {}
 function ensureCloudflareTempEmailConfig() {
-  return { receiveMailbox: options.receiveMailbox };
+  return {
+    receiveMailbox: options.receiveMailbox,
+    useDirectKv: Boolean(options.useDirectKv),
+    cfApiToken: 'token',
+    cfAccountId: 'account',
+    kvNamespaceId: 'namespace',
+    kvDeleteAfterRead: Boolean(options.kvDeleteAfterRead),
+  };
+}
+async function fetch(url, request = {}) {
+  kvCalls.push({ url, method: request.method || 'GET' });
+  if (request.method === 'DELETE') {
+    return { status: 200, ok: true, text: async () => '{}' };
+  }
+  if (options.kvPayload === null) {
+    return { status: 404, ok: false, text: async () => '' };
+  }
+  return {
+    status: 200,
+    ok: true,
+    text: async () => typeof options.kvPayload === 'string' ? options.kvPayload : JSON.stringify(options.kvPayload),
+  };
 }
 async function listCloudflareTempEmailMessages(_state, config) {
   listCalls.push(config.address);
@@ -122,7 +149,7 @@ ${bundle}
 return {
   pollCloudflareTempEmailVerificationCode,
   snapshot() {
-    return { logs, listCalls };
+    return { logs, listCalls, kvCalls };
   },
 };
 `)({
@@ -211,4 +238,34 @@ test('pollCloudflareTempEmailVerificationCode ignores stale receive mailbox when
 
   assert.equal(result.code, '246810');
   assert.deepEqual(api.snapshot().listCalls, ['generated@email.20021108.xyz']);
+});
+
+test('pollCloudflareTempEmailVerificationCode can read OTP directly from Cloudflare KV', async () => {
+  const api = createProviderApi({
+    useDirectKv: true,
+    kvDeleteAfterRead: true,
+    kvPayload: {
+      otp: '135790',
+      ts: Date.now(),
+      from: 'noreply@tm.openai.com',
+      subject: 'Your ChatGPT code is 135790',
+    },
+  });
+
+  const result = await api.pollCloudflareTempEmailVerificationCode(4, {
+    email: 'generated@email.example.com',
+    mailProvider: 'cloudflare-temp-email',
+    emailGenerator: 'cloudflare-temp-email',
+  }, {
+    targetEmail: 'generated@email.example.com',
+    maxAttempts: 1,
+    intervalMs: 1,
+  });
+
+  assert.equal(result.code, '135790');
+  const state = api.snapshot();
+  assert.equal(state.listCalls.length, 0);
+  assert.equal(state.kvCalls[0].method, 'GET');
+  assert.match(state.kvCalls[0].url, /generated%40email\.example\.com$/);
+  assert.equal(state.kvCalls[1].method, 'DELETE');
 });
