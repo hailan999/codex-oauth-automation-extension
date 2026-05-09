@@ -347,6 +347,7 @@ const DEFAULT_HOTMAIL_REMOTE_BASE_URL = '';
 const DEFAULT_HOTMAIL_LOCAL_BASE_URL = 'http://127.0.0.1:17373';
 const DEFAULT_ACCOUNT_RUN_HISTORY_HELPER_BASE_URL = DEFAULT_HOTMAIL_LOCAL_BASE_URL;
 const HOTMAIL_LOCAL_HELPER_TIMEOUT_MS = 45000;
+const HOTMAIL_LOCAL_CODE_HARD_TIMEOUT_MS = 20000;
 const DEFAULT_LUCKMAIL_PROJECT_CODE = 'openai';
 const DEFAULT_HERO_SMS_BASE_URL = 'https://hero-sms.com/stubs/handler_api.php';
 const HERO_SMS_SERVICE_CODE = 'dr';
@@ -3835,6 +3836,29 @@ async function requestHotmailLocalCode(account, pollPayload = {}) {
   };
 }
 
+async function runHotmailLocalCodeRequestWithHardTimeout(account, pollPayload = {}, timeoutMs = HOTMAIL_LOCAL_CODE_HARD_TIMEOUT_MS) {
+  const normalizedTimeoutMs = Math.max(1000, Number(timeoutMs) || HOTMAIL_LOCAL_CODE_HARD_TIMEOUT_MS);
+  let timeoutId = null;
+  const requestPromise = requestHotmailLocalCode(account, pollPayload);
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`Hotmail 本地助手验证码请求硬超时（>${Math.round(normalizedTimeoutMs / 1000)} 秒）`));
+    }, normalizedTimeoutMs);
+  });
+
+  try {
+    return await Promise.race([
+      requestPromise,
+      timeoutPromise,
+    ]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+    requestPromise.catch(() => {});
+  }
+}
+
 async function pollHotmailVerificationCodeViaLocalHelper(step, account, pollPayload = {}) {
   const maxAttempts = Number(pollPayload.maxAttempts) || 5;
   const intervalMs = Number(pollPayload.intervalMs) || 3000;
@@ -3845,7 +3869,7 @@ async function pollHotmailVerificationCodeViaLocalHelper(step, account, pollPayl
     throwIfStopped();
     try {
       await addLog(`步骤 ${step}：正在通过本地助手轮询 Hotmail 验证码（${attempt}/${maxAttempts}）...`, 'info');
-      const fetchResult = await requestHotmailLocalCode(workingAccount, pollPayload);
+      const fetchResult = await runHotmailLocalCodeRequestWithHardTimeout(workingAccount, pollPayload);
       workingAccount = fetchResult.account;
 
       if (fetchResult.code) {
@@ -10157,6 +10181,14 @@ async function runAutoSequenceFromStep(startStep, context = {}) {
     return Number(step) < Number(lastStepId);
   }
 
+  function shouldRestartSignupOnlyFromStep1AfterStep2Failure(step, error) {
+    if (Number(step) !== 2) {
+      return false;
+    }
+    const message = getErrorMessage(error);
+    return /已登录\s*ChatGPT\s*首页|请先执行步骤\s*1\s*清理会话|当前页面没有可用的注册入口，也不在邮箱\/密码页/i.test(message);
+  }
+
   async function executeStepAndWaitWithSignupOnlyRetry(step, delayAfter = 2000) {
     while (true) {
       try {
@@ -10181,6 +10213,18 @@ async function runAutoSequenceFromStep(startStep, context = {}) {
         }
 
         signupOnlyCurrentStepRetryCounts.set(step, retryCount);
+        if (shouldRestartSignupOnlyFromStep1AfterStep2Failure(step, err)) {
+          await addLog(
+            `仅注册+保存：步骤 2 检测到已登录首页或注册入口异常，正在回到步骤 1 清理会话后重试（${retryCount}/${retryLimit}）。原因：${getErrorMessage(err)}`,
+            'warn'
+          );
+          await invalidateDownstreamAfterStepRestart(0, {
+            logLabel: `仅注册+保存步骤 2 失败后准备回到步骤 1 清理会话（第 ${retryCount}/${retryLimit} 次）`,
+          });
+          await sleepWithStop(1000);
+          return { restartFromStep1: true };
+        }
+
         await addLog(
           `仅注册+保存：步骤 ${step} 失败，正在自动重试当前步骤（${retryCount}/${retryLimit}）。原因：${getErrorMessage(err)}`,
           'warn'
@@ -10211,7 +10255,12 @@ async function runAutoSequenceFromStep(startStep, context = {}) {
     } else {
       await ensureAutoEmailReady(targetRun, totalRuns, attemptRuns);
     }
-    await executeStepAndWaitWithSignupOnlyRetry(2, AUTO_STEP_DELAYS[2]);
+    const step2Result = await executeStepAndWaitWithSignupOnlyRetry(2, AUTO_STEP_DELAYS[2]);
+    if (step2Result?.restartFromStep1) {
+      currentStartStep = 1;
+      continueCurrentAttempt = true;
+      continue;
+    }
   }
 
   if (currentStartStep <= 3) {

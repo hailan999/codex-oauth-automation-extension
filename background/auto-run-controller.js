@@ -127,23 +127,30 @@
         && state.customMailProviderPool.length > 0;
     }
 
-    function isSignupOnlySaveSessionFailure(state = {}) {
+    function getSignupOnlyFailedStepKey(state = {}) {
       if (String(state?.flowStepLimit || '').trim().toLowerCase() !== 'signup') {
-        return false;
+        return '';
       }
 
       const statuses = state?.stepStatuses && typeof state.stepStatuses === 'object'
         ? state.stepStatuses
         : {};
-      return Object.entries(statuses).some(([step, status]) => {
+      const failedEntry = Object.entries(statuses).find(([step, status]) => {
         if (String(status || '').trim().toLowerCase() !== 'failed') {
           return false;
         }
         const stepDefinition = typeof getStepDefinitionForState === 'function'
           ? getStepDefinitionForState(Number(step), state)
           : null;
-        return String(stepDefinition?.key || '').trim() === 'save-chatgpt-session';
+        return Boolean(String(stepDefinition?.key || '').trim());
       });
+      if (!failedEntry) {
+        return '';
+      }
+      const stepDefinition = typeof getStepDefinitionForState === 'function'
+        ? getStepDefinitionForState(Number(failedEntry[0]), state)
+        : null;
+      return String(stepDefinition?.key || '').trim();
     }
 
     function isPhoneNumberSupplyExhaustedFailure(error) {
@@ -571,12 +578,13 @@
               && isSignupUserAlreadyExistsFailure(err);
             const blockedByStep4Route405 = typeof isStep4Route405RecoveryLimitFailure === 'function'
               && isStep4Route405RecoveryLimitFailure(err);
-            const blockedBySignupOnlySaveSession = isSignupOnlySaveSessionFailure(failureState);
+            const signupOnlyFailedStepKey = getSignupOnlyFailedStepKey(failureState);
+            const blockedBySignupOnlyFailure = Boolean(signupOnlyFailedStepKey);
             const canRetry = !blockedByAddPhone
               && !blockedByPhoneNoSupply
               && !blockedByPlusNonFreeTrial
               && !blockedBySignupUserAlreadyExists
-              && !blockedBySignupOnlySaveSession
+              && !blockedBySignupOnlyFailure
               && autoRunSkipFailures
               && attemptRun < maxAttemptsForRound;
 
@@ -759,20 +767,23 @@
               break;
             }
 
-            if (blockedBySignupOnlySaveSession) {
+            if (blockedBySignupOnlyFailure) {
               roundSummary.status = 'failed';
               roundSummary.finalFailureReason = reason;
               await setState({
                 autoRunRoundSummaries: serializeAutoRunRoundSummaries(totalRuns, roundSummaries),
               });
               await appendRoundRecordIfNeeded('failed', reason);
-              cancelPendingCommands('仅注册+保存流程保存 ChatGPT Session 失败，当前轮已终止。');
+              const failureLabel = signupOnlyFailedStepKey === 'save-chatgpt-session'
+                ? '保存 ChatGPT Session'
+                : '当前步骤';
+              cancelPendingCommands(`仅注册+保存流程${failureLabel}失败，当前轮已终止。`);
               await broadcastStopToContentScripts();
-              await addLog(`第 ${targetRun}/${totalRuns} 轮保存 ChatGPT Session 失败，本轮记为失败并跳过到下一轮。原因：${reason}`, 'warn');
+              await addLog(`第 ${targetRun}/${totalRuns} 轮${failureLabel}失败，本轮记为失败并跳过到下一轮。原因：${reason}`, 'warn');
               await addLog(
                 targetRun < totalRuns
-                  ? `第 ${targetRun}/${totalRuns} 轮因保存 ChatGPT Session 失败提前结束，自动流程将继续下一轮。`
-                  : `第 ${targetRun}/${totalRuns} 轮因保存 ChatGPT Session 失败提前结束，已无后续轮次，本次自动运行结束。`,
+                  ? `第 ${targetRun}/${totalRuns} 轮因${failureLabel}失败提前结束，自动流程将继续下一轮。`
+                  : `第 ${targetRun}/${totalRuns} 轮因${failureLabel}失败提前结束，已无后续轮次，本次自动运行结束。`,
                 'warn'
               );
               forceFreshTabsNextRun = true;
