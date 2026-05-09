@@ -49,6 +49,8 @@ importScripts(
   'microsoft-email.js',
   'luckmail-utils.js',
   'cloudflare-temp-email-utils.js',
+  'cloudmail-utils.js',
+  'background/cloudmail-provider.js',
   'icloud-utils.js',
   'mail-provider-utils.js',
   'content/activation-utils.js'
@@ -172,6 +174,17 @@ const {
   normalizeCloudflareTempEmailMailApiMessages,
 } = self.CloudflareTempEmailUtils;
 const {
+  DEFAULT_MAIL_PAGE_SIZE: CLOUD_MAIL_DEFAULT_PAGE_SIZE,
+  buildCloudMailHeaders,
+  getCloudMailTokenFromResponse,
+  joinCloudMailUrl,
+  normalizeCloudMailAddress,
+  normalizeCloudMailBaseUrl,
+  normalizeCloudMailDomain,
+  normalizeCloudMailDomains,
+  normalizeCloudMailMailApiMessages,
+} = self.CloudMailUtils;
+const {
   findIcloudAliasByEmail,
   getConfiguredIcloudHostPreference,
   getIcloudHostHintFromMessage,
@@ -227,6 +240,8 @@ const HOTMAIL_PROVIDER = 'hotmail-api';
 const LUCKMAIL_PROVIDER = 'luckmail-api';
 const CLOUDFLARE_TEMP_EMAIL_PROVIDER = 'cloudflare-temp-email';
 const CLOUDFLARE_TEMP_EMAIL_GENERATOR = 'cloudflare-temp-email';
+const CLOUD_MAIL_PROVIDER = 'cloudmail';
+const CLOUD_MAIL_GENERATOR = 'cloudmail';
 const CUSTOM_EMAIL_POOL_GENERATOR = 'custom-pool';
 const HOTMAIL_MAILBOXES = ['INBOX', 'Junk'];
 const STOP_ERROR_MESSAGE = '流程已被用户停止。';
@@ -240,11 +255,12 @@ const STEP7_MAIL_POLLING_RECOVERY_MAX_ATTEMPTS = 8;
 const OAUTH_FLOW_TIMEOUT_MS = 5 * 60 * 1000;
 const SUB2API_STEP1_RESPONSE_TIMEOUT_MS = 90000;
 const SUB2API_STEP9_RESPONSE_TIMEOUT_MS = 120000;
-const DEFAULT_SUB2API_URL = 'https://sub2api.hisence.fun/admin/accounts';
+const DEFAULT_SUB2API_URL = '';
 const DEFAULT_CODEX2API_URL = 'http://localhost:8080/admin/accounts';
-const DEFAULT_GPC_HELPER_API_URL = 'https://gopay.hwork.pro';
+const DEFAULT_GPC_HELPER_API_URL = 'https://gpc.qlhazycoder.top';
 const DEFAULT_SUB2API_GROUP_NAME = 'codex';
 const DEFAULT_SUB2API_PROXY_NAME = '';
+const DEFAULT_SUB2API_ACCOUNT_PRIORITY = 1;
 const CONTRIBUTION_SOURCE_CPA = 'cpa';
 const CONTRIBUTION_SOURCE_SUB2API = 'sub2api';
 const CONTRIBUTION_SUB2API_DEFAULT_GROUP_NAME = 'codex号池';
@@ -381,8 +397,18 @@ const FIVE_SIM_COUNTRY_ID = 'vietnam';
 const FIVE_SIM_COUNTRY_LABEL = '越南 (Vietnam)';
 const FIVE_SIM_SUPPORTED_COUNTRY_IDS = ['indonesia', 'thailand', 'vietnam'];
 const FIVE_SIM_SUPPORTED_COUNTRY_ID_SET = new Set(FIVE_SIM_SUPPORTED_COUNTRY_IDS);
-const HERO_SMS_SUPPORTED_COUNTRY_IDS = [6, 52, 10];
+const HERO_SMS_SUPPORTED_COUNTRY_IDS = [6, 52, 187, 16, 151, 43, 73, 10];
 const HERO_SMS_SUPPORTED_COUNTRY_ID_SET = new Set(HERO_SMS_SUPPORTED_COUNTRY_IDS.map(String));
+const HERO_SMS_COUNTRY_BY_PHONE_PREFIX = Object.freeze([
+  { prefix: '84', id: 10, label: 'Vietnam' },
+  { prefix: '66', id: 52, label: 'Thailand' },
+  { prefix: '62', id: 6, label: 'Indonesia' },
+  { prefix: '44', id: 16, label: 'United Kingdom' },
+  { prefix: '81', id: 151, label: 'Japan' },
+  { prefix: '49', id: 43, label: 'Germany' },
+  { prefix: '33', id: 73, label: 'France' },
+  { prefix: '1', id: 187, label: 'USA' },
+]);
 const FIVE_SIM_OPERATOR = DEFAULT_FIVE_SIM_OPERATOR;
 const PLUS_PAYMENT_METHOD_PAYPAL = 'paypal';
 const PLUS_PAYMENT_METHOD_GOPAY = 'gopay';
@@ -589,6 +615,7 @@ const PERSISTED_SETTING_DEFAULTS = {
   sub2apiPassword: '',
   sub2apiGroupName: DEFAULT_SUB2API_GROUP_NAME,
   sub2apiGroupNames: DEFAULT_SUB2API_GROUP_NAMES,
+  sub2apiAccountPriority: DEFAULT_SUB2API_ACCOUNT_PRIORITY,
   sub2apiDefaultProxyName: DEFAULT_SUB2API_PROXY_NAME,
   ipProxyEnabled: false,
   ipProxyService: DEFAULT_IP_PROXY_SERVICE,
@@ -620,6 +647,7 @@ const PERSISTED_SETTING_DEFAULTS = {
   gopayOtp: '',
   gopayPin: '',
   gopayHelperApiUrl: DEFAULT_GPC_HELPER_API_URL,
+  gopayHelperApiKey: '',
   gopayHelperCardKey: '',
   gopayHelperPhoneNumber: '',
   gopayHelperCountryCode: '+86',
@@ -636,6 +664,18 @@ const PERSISTED_SETTING_DEFAULTS = {
   gopayHelperFlowId: '',
   gopayHelperChallengeId: '',
   gopayHelperStartPayload: null,
+  gopayHelperTaskId: '',
+  gopayHelperTaskStatus: '',
+  gopayHelperStatusText: '',
+  gopayHelperRemoteStage: '',
+  gopayHelperApiWaitingFor: '',
+  gopayHelperApiInputDeadlineAt: '',
+  gopayHelperApiInputWaitSeconds: 0,
+  gopayHelperLastInputError: '',
+  gopayHelperOtpInvalidCount: 0,
+  gopayHelperFailureStage: '',
+  gopayHelperFailureDetail: '',
+  gopayHelperTaskPayload: null,
   gopayHelperBalance: '',
   gopayHelperBalancePayload: null,
   gopayHelperBalanceUpdatedAt: 0,
@@ -647,7 +687,10 @@ const PERSISTED_SETTING_DEFAULTS = {
   autoRunDelayEnabled: false,
   autoRunDelayMinutes: 30,
   autoStepDelaySeconds: null,
+  step6CookieCleanupEnabled: false,
   phoneVerificationEnabled: false,
+  freePhoneReuseEnabled: true,
+  freePhoneReuseAutoEnabled: true,
   signupMethod: DEFAULT_SIGNUP_METHOD,
   phoneSmsProvider: DEFAULT_PHONE_SMS_PROVIDER,
   phoneSmsProviderOrder: [],
@@ -701,6 +744,13 @@ const PERSISTED_SETTING_DEFAULTS = {
   cloudflareTempEmailUseRandomSubdomain: false,
   cloudflareTempEmailDomain: '',
   cloudflareTempEmailDomains: [],
+  cloudMailBaseUrl: '',
+  cloudMailAdminEmail: '',
+  cloudMailAdminPassword: '',
+  cloudMailToken: '',
+  cloudMailReceiveMailbox: '',
+  cloudMailDomain: '',
+  cloudMailDomains: [],
   hotmailAccounts: [],
   mail2925Accounts: [],
   paypalAccounts: [],
@@ -784,6 +834,18 @@ const DEFAULT_STATE = {
   gopayHelperFlowId: '',
   gopayHelperChallengeId: '',
   gopayHelperStartPayload: null,
+  gopayHelperTaskId: '',
+  gopayHelperTaskStatus: '',
+  gopayHelperStatusText: '',
+  gopayHelperRemoteStage: '',
+  gopayHelperApiWaitingFor: '',
+  gopayHelperApiInputDeadlineAt: '',
+  gopayHelperApiInputWaitSeconds: 0,
+  gopayHelperLastInputError: '',
+  gopayHelperOtpInvalidCount: 0,
+  gopayHelperFailureStage: '',
+  gopayHelperFailureDetail: '',
+  gopayHelperTaskPayload: null,
   gopayHelperOrderCreatedAt: 0,
   gopayHelperPinPayload: null,
   gopayHelperResolvedOtp: '',
@@ -819,6 +881,7 @@ const DEFAULT_STATE = {
   currentPhoneVerificationCountdownWindowIndex: 0,
   currentPhoneVerificationCountdownWindowTotal: 0,
   reusablePhoneActivation: null,
+  freeReusablePhoneActivation: null,
   phoneReusableActivationPool: [],
   signupPhoneNumber: '',
   signupPhoneActivation: null,
@@ -1682,6 +1745,7 @@ function normalizeEmailGenerator(value = '') {
   }
   if (normalized === 'cloudflare') return 'cloudflare';
   if (normalized === CLOUDFLARE_TEMP_EMAIL_GENERATOR) return CLOUDFLARE_TEMP_EMAIL_GENERATOR;
+  if (normalized === 'cloudmail') return 'cloudmail';
   return 'duck';
 }
 
@@ -1915,6 +1979,7 @@ function normalizeMailProvider(value = '') {
     case HOTMAIL_PROVIDER:
     case LUCKMAIL_PROVIDER:
     case CLOUDFLARE_TEMP_EMAIL_PROVIDER:
+    case CLOUD_MAIL_PROVIDER:
     case '163':
     case '163-vip':
     case '126':
@@ -2115,6 +2180,34 @@ function resolveCloudflareTempEmailPollTargetEmail(state = {}, pollPayload = {},
   return normalizeCloudflareTempEmailReceiveMailbox(state.email);
 }
 
+const cloudMailProvider = self.MultiPageBackgroundCloudMailProvider.createCloudMailProvider({
+  addLog,
+  buildCloudMailHeaders,
+  CLOUD_MAIL_DEFAULT_PAGE_SIZE,
+  CLOUD_MAIL_GENERATOR,
+  CLOUD_MAIL_PROVIDER,
+  getCloudMailTokenFromResponse,
+  getState,
+  joinCloudMailUrl,
+  normalizeCloudMailAddress,
+  normalizeCloudMailBaseUrl,
+  normalizeCloudMailDomain,
+  normalizeCloudMailDomains,
+  normalizeCloudMailMailApiMessages,
+  pickVerificationMessageWithTimeFallback,
+  setEmailState,
+  setPersistentSettings,
+  sleepWithStop,
+  throwIfStopped,
+});
+const {
+  getCloudMailConfig,
+  normalizeCloudMailReceiveMailbox,
+  fetchCloudMailAddress,
+  pollCloudMailVerificationCode,
+  resolveCloudMailPollTargetEmail,
+} = cloudMailProvider;
+
 function normalizeSub2ApiGroupNames(value = '') {
   const source = Array.isArray(value)
     ? value
@@ -2131,6 +2224,18 @@ function normalizeSub2ApiGroupNames(value = '') {
     names.push(name);
   }
   return names;
+}
+
+function normalizeSub2ApiAccountPriority(value, fallback = DEFAULT_SUB2API_ACCOUNT_PRIORITY) {
+  const rawValue = String(value ?? '').trim();
+  const numeric = Number(rawValue);
+  if (!rawValue || !Number.isSafeInteger(numeric) || numeric < 1) {
+    const fallbackNumber = Number(fallback);
+    return Number.isSafeInteger(fallbackNumber) && fallbackNumber >= 1
+      ? fallbackNumber
+      : DEFAULT_SUB2API_ACCOUNT_PRIORITY;
+  }
+  return numeric;
 }
 
 function normalizePersistentSettingValue(key, value) {
@@ -2153,6 +2258,8 @@ function normalizePersistentSettingValue(key, value) {
       return String(value || '').trim();
     case 'sub2apiGroupNames':
       return normalizeSub2ApiGroupNames(value);
+    case 'sub2apiAccountPriority':
+      return normalizeSub2ApiAccountPriority(value);
     case 'sub2apiDefaultProxyName':
       return String(value || '').trim();
     case 'ipProxyEnabled':
@@ -2291,11 +2398,24 @@ function normalizePersistentSettingValue(key, value) {
     case 'gopayHelperApiUrl':
       {
         const defaultGpcHelperApiUrl = PERSISTED_SETTING_DEFAULTS.gopayHelperApiUrl
-          || (typeof DEFAULT_GPC_HELPER_API_URL !== 'undefined' ? DEFAULT_GPC_HELPER_API_URL : 'https://gopay.hwork.pro');
-        return self.GoPayUtils?.normalizeGpcHelperBaseUrl
+          || (typeof DEFAULT_GPC_HELPER_API_URL !== 'undefined' ? DEFAULT_GPC_HELPER_API_URL : 'https://gpc.qlhazycoder.top');
+        const normalizedGpcHelperApiUrl = self.GoPayUtils?.normalizeGpcHelperBaseUrl
           ? self.GoPayUtils.normalizeGpcHelperBaseUrl(value || defaultGpcHelperApiUrl)
           : String(value || defaultGpcHelperApiUrl).trim().replace(/\/+$/g, '');
+        if (!self.GoPayUtils?.normalizeGpcHelperBaseUrl) {
+          try {
+            const parsed = new URL(normalizedGpcHelperApiUrl);
+            const hostname = parsed.hostname.toLowerCase();
+            if (hostname !== 'gpc.qlhazycoder.top' && hostname !== 'localhost' && hostname !== '127.0.0.1') {
+              return defaultGpcHelperApiUrl;
+            }
+          } catch {
+            return defaultGpcHelperApiUrl;
+          }
+        }
+        return normalizedGpcHelperApiUrl;
       }
+    case 'gopayHelperApiKey':
     case 'gopayHelperCardKey':
     case 'gopayHelperReferenceId':
     case 'gopayHelperGoPayGuid':
@@ -2303,19 +2423,34 @@ function normalizePersistentSettingValue(key, value) {
     case 'gopayHelperNextAction':
     case 'gopayHelperFlowId':
     case 'gopayHelperChallengeId':
+    case 'gopayHelperTaskId':
+    case 'gopayHelperTaskStatus':
+    case 'gopayHelperStatusText':
+    case 'gopayHelperRemoteStage':
+    case 'gopayHelperApiWaitingFor':
+    case 'gopayHelperApiInputDeadlineAt':
+    case 'gopayHelperLastInputError':
+    case 'gopayHelperFailureStage':
+    case 'gopayHelperFailureDetail':
     case 'gopayHelperBalance':
     case 'gopayHelperBalanceError':
       return String(value || '').trim();
     case 'gopayHelperBalancePayload':
     case 'gopayHelperStartPayload':
+    case 'gopayHelperTaskPayload':
       return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
     case 'gopayHelperBalanceUpdatedAt':
+    case 'gopayHelperApiInputWaitSeconds':
+    case 'gopayHelperOtpInvalidCount':
       return Math.max(0, Number(value) || 0);
     case 'autoRunSkipFailures':
     case 'oauthFlowTimeoutEnabled':
     case 'gopayHelperLocalSmsHelperEnabled':
     case 'autoRunDelayEnabled':
+    case 'step6CookieCleanupEnabled':
     case 'phoneVerificationEnabled':
+    case 'freePhoneReuseEnabled':
+    case 'freePhoneReuseAutoEnabled':
     case 'plusModeEnabled':
       return Boolean(value);
     case 'phoneSmsProvider':
@@ -2417,6 +2552,19 @@ function normalizePersistentSettingValue(key, value) {
       return normalizeCloudflareTempEmailDomain(value);
     case 'cloudflareTempEmailDomains':
       return normalizeCloudflareTempEmailDomains(value);
+    case 'cloudMailBaseUrl':
+      return normalizeCloudMailBaseUrl(value);
+    case 'cloudMailAdminEmail':
+      return String(value || '').trim();
+    case 'cloudMailAdminPassword':
+    case 'cloudMailToken':
+      return String(value || '');
+    case 'cloudMailReceiveMailbox':
+      return normalizeCloudMailReceiveMailbox(value);
+    case 'cloudMailDomain':
+      return normalizeCloudMailDomain(value);
+    case 'cloudMailDomains':
+      return normalizeCloudMailDomains(value);
     case 'hotmailAccounts':
       return normalizeHotmailAccounts(value);
     case 'mail2925Accounts':
@@ -2525,6 +2673,13 @@ function buildPersistentSettingsPayload(input = {}, options = {}) {
       domains.unshift(payload.cloudflareTempEmailDomain);
     }
     payload.cloudflareTempEmailDomains = domains;
+  }
+  if (payload.cloudMailDomains) {
+    const domains = normalizeCloudMailDomains(payload.cloudMailDomains);
+    if (payload.cloudMailDomain && !domains.includes(payload.cloudMailDomain)) {
+      domains.unshift(payload.cloudMailDomain);
+    }
+    payload.cloudMailDomains = domains;
   }
   if (
     Object.prototype.hasOwnProperty.call(payload, 'sub2apiGroupName')
@@ -3129,6 +3284,7 @@ async function resetState() {
       'tabRegistry',
       'sourceLastUrls',
       'reusablePhoneActivation',
+      'freeReusablePhoneActivation',
       'phoneReusableActivationPool',
       'ipProxyCurrentIndex',
       'ipProxyCurrent',
@@ -3185,6 +3341,19 @@ async function resetState() {
       .map((entry) => normalizePhonePreferredActivation(entry))
       .filter(Boolean)
     : [];
+  const freeReusablePhoneActivation = (
+    prev.freeReusablePhoneActivation
+    && typeof prev.freeReusablePhoneActivation === 'object'
+    && !Array.isArray(prev.freeReusablePhoneActivation)
+    && String(
+      prev.freeReusablePhoneActivation.phoneNumber
+      ?? prev.freeReusablePhoneActivation.number
+      ?? prev.freeReusablePhoneActivation.phone
+      ?? ''
+    ).trim()
+  )
+    ? prev.freeReusablePhoneActivation
+    : null;
   await chrome.storage.session.clear();
   await chrome.storage.session.set({
     ...DEFAULT_STATE,
@@ -3224,6 +3393,8 @@ async function resetState() {
     currentLuckmailMailCursor: null,
     // Keep reusable phone activation across round resets so the same number can be reactivated up to maxUses.
     reusablePhoneActivation,
+    // Keep free reuse phone activation until the user clears or the flow retires it.
+    freeReusablePhoneActivation,
     phoneReusableActivationPool,
     preferredIcloudHost: prev.preferredIcloudHost || '',
   });
@@ -5653,7 +5824,6 @@ async function withIcloudLoginHelp(actionLabel, action) {
         if (shouldEmitIcloudTransientLog(`${safeActionLabel}:final`)) {
           await addLog(`iCloud：${safeActionLabel}受网络/上下文波动影响：${getErrorMessage(err)}`, 'warn');
         }
-        const safeActionLabel = String(actionLabel || '操作').trim() || '操作';
         const transientError = new Error(`iCloud：${safeActionLabel}受网络/上下文波动影响，请稍后重试。`);
         transientError.code = 'ICLOUD_TRANSIENT_CONTEXT';
         transientError.actionLabel = safeActionLabel;
@@ -6818,6 +6988,151 @@ async function finalizePhoneActivationAfterSuccessfulFlow(state) {
   return phoneVerificationHelpers.finalizePendingPhoneActivationConfirmation(state);
 }
 
+async function clearFreeReusablePhoneActivation() {
+  await setState({ freeReusablePhoneActivation: null });
+  broadcastDataUpdate({ freeReusablePhoneActivation: null });
+  await addLog('已清除白嫖复用手机号记录。', 'ok');
+  return { ok: true, freeReusablePhoneActivation: null };
+}
+
+function inferHeroSmsCountryFromPhoneNumber(phoneNumber = '') {
+  const digits = String(phoneNumber || '').replace(/\D+/g, '');
+  if (!digits) {
+    return null;
+  }
+  const match = HERO_SMS_COUNTRY_BY_PHONE_PREFIX.find((entry) => digits.startsWith(entry.prefix));
+  if (!match) {
+    return null;
+  }
+  return {
+    id: Math.max(1, Math.floor(Number(match.id) || 0)),
+    label: String(match.label || '').trim() || `Country #${match.id}`,
+  };
+}
+
+function normalizePhoneDigits(value = '') {
+  return String(value || '').replace(/\D+/g, '');
+}
+
+function phoneNumbersMatch(left = '', right = '') {
+  const leftDigits = normalizePhoneDigits(left);
+  const rightDigits = normalizePhoneDigits(right);
+  return Boolean(leftDigits && rightDigits && leftDigits === rightDigits);
+}
+
+function normalizeLocalHeroSmsActivation(record) {
+  if (!record || typeof record !== 'object' || Array.isArray(record)) {
+    return null;
+  }
+  const activationId = String(record.activationId ?? record.id ?? record.activation ?? '').trim();
+  const phoneNumber = String(record.phoneNumber ?? record.number ?? record.phone ?? '').trim();
+  if (!activationId || !phoneNumber) {
+    return null;
+  }
+  const rawProvider = String(record.provider ?? record.smsProvider ?? '').trim();
+  const provider = rawProvider ? normalizePhoneSmsProvider(rawProvider) : PHONE_SMS_PROVIDER_HERO;
+  if (provider !== PHONE_SMS_PROVIDER_HERO) {
+    return null;
+  }
+  const countryId = Math.max(
+    0,
+    Math.floor(Number(record.countryId ?? record.country ?? record.countryCode) || 0)
+  );
+  const countryLabel = String(record.countryLabel || record.label || '').trim();
+  const serviceCode = String(record.serviceCode || record.service || HERO_SMS_SERVICE_CODE).trim() || HERO_SMS_SERVICE_CODE;
+  return {
+    ...record,
+    provider: PHONE_SMS_PROVIDER_HERO,
+    activationId,
+    phoneNumber,
+    serviceCode,
+    ...(countryId > 0 ? { countryId } : {}),
+    ...(countryLabel ? { countryLabel } : {}),
+  };
+}
+
+function findLocalHeroSmsActivationForPhone(state = {}, phoneNumber = '') {
+  const candidates = [
+    state.currentPhoneActivation,
+    state.reusablePhoneActivation,
+    state.pendingPhoneActivationConfirmation,
+    state.signupPhoneActivation,
+    state.signupPhoneCompletedActivation,
+    state.phonePreferredActivation,
+    state.freeReusablePhoneActivation,
+  ];
+  if (Array.isArray(state.phoneReusableActivationPool)) {
+    candidates.push(...state.phoneReusableActivationPool);
+  }
+  for (const candidate of candidates) {
+    const normalized = normalizeLocalHeroSmsActivation(candidate);
+    if (normalized && phoneNumbersMatch(normalized.phoneNumber, phoneNumber)) {
+      return normalized;
+    }
+  }
+  return null;
+}
+
+async function setFreeReusablePhoneActivation(record = {}) {
+  const phoneNumber = String(record.phoneNumber || record.number || record.phone || '').trim();
+  if (!phoneNumber) {
+    throw new Error('请先填写白嫖复用手机号。');
+  }
+  const state = await getState();
+  const localActivation = findLocalHeroSmsActivationForPhone(state, phoneNumber);
+  const activationId = String(
+    record.activationId
+    || record.id
+    || record.activation
+    || localActivation?.activationId
+    || ''
+  ).trim();
+  const inferredCountry = inferHeroSmsCountryFromPhoneNumber(phoneNumber);
+  const hasExplicitCountry = Number.isFinite(Number(record.countryId)) && Number(record.countryId) > 0;
+  const countryId = Math.max(
+    1,
+    Math.floor(
+      Number(record.countryId)
+      || Number(localActivation?.countryId)
+      || Number(inferredCountry?.id)
+      || Number(state.heroSmsCountryId)
+      || HERO_SMS_COUNTRY_ID
+    )
+  );
+  const stateCountryLabel = Math.floor(Number(state.heroSmsCountryId) || 0) === countryId
+    ? String(state.heroSmsCountryLabel || '').trim()
+    : '';
+  const countryLabel = String(
+    record.countryLabel
+    || (Number(localActivation?.countryId) === countryId ? localActivation?.countryLabel : '')
+    || (!hasExplicitCountry && inferredCountry?.id === countryId ? inferredCountry.label : '')
+    || stateCountryLabel
+    || (countryId === HERO_SMS_COUNTRY_ID ? HERO_SMS_COUNTRY_LABEL : `Country #${countryId}`)
+  ).trim();
+  const activation = {
+    ...(activationId ? { activationId } : {}),
+    phoneNumber,
+    provider: PHONE_SMS_PROVIDER_HERO,
+    serviceCode: String(record.serviceCode || localActivation?.serviceCode || HERO_SMS_SERVICE_CODE).trim() || HERO_SMS_SERVICE_CODE,
+    countryId,
+    ...(countryLabel ? { countryLabel } : {}),
+    successfulUses: Math.max(0, Math.floor(Number(record.successfulUses) || 0)),
+    maxUses: Math.max(1, Math.floor(Number(record.maxUses) || 3)),
+    source: 'free-manual-reuse',
+    recordedAt: Date.now(),
+    manualOnly: !activationId,
+  };
+  await setState({ freeReusablePhoneActivation: activation });
+  broadcastDataUpdate({ freeReusablePhoneActivation: activation });
+  await addLog(
+    activationId
+      ? `已手动记录白嫖复用手机号 ${phoneNumber}（#${activationId}）。`
+      : `已手动记录白嫖复用手机号 ${phoneNumber}。未填写 HeroSMS 激活 ID，仅支持手动填号复用。`,
+    'ok'
+  );
+  return { ok: true, freeReusablePhoneActivation: activation };
+}
+
 // ============================================================
 // Tab Registry
 // ============================================================
@@ -6855,6 +7170,7 @@ function normalizeSub2ApiUrl(rawUrl) {
     return navigationUtils.normalizeSub2ApiUrl(rawUrl);
   }
   const input = (rawUrl || '').trim() || DEFAULT_SUB2API_URL;
+  if (!input) return '';
   const withProtocol = /^https?:\/\//i.test(input) ? input : `https://${input}`;
   const parsed = new URL(withProtocol);
   if (!parsed.pathname || parsed.pathname === '/') {
@@ -7300,6 +7616,7 @@ function getSourceLabel(source) {
     'hotmail-api': 'Hotmail（API对接/本地助手）',
     'luckmail-api': 'LuckMail（API 购邮）',
     'cloudflare-temp-email': 'Cloudflare Temp Email',
+    'cloudmail': 'Cloud Mail',
     'plus-checkout': 'Plus Checkout',
     'paypal-flow': 'PayPal 授权页',
   };
@@ -7390,7 +7707,8 @@ function getErrorMessage(error) {
   if (typeof loggingStatus !== 'undefined' && loggingStatus?.getErrorMessage) {
     return loggingStatus.getErrorMessage(error);
   }
-  return String(typeof error === 'string' ? error : error?.message || '');
+  return String(typeof error === 'string' ? error : error?.message || '')
+    .replace(/^GPC_TASK_ENDED::/i, '');
 }
 
 function isCloudflareSecurityBlockedError(error) {
@@ -7504,7 +7822,86 @@ function isRestartCurrentAttemptError(error) {
     return loggingStatus.isRestartCurrentAttemptError(error);
   }
   const message = String(typeof error === 'string' ? error : error?.message || '');
-  return /当前邮箱已存在，需要重新开始新一轮/.test(message);
+  return /当前邮箱已存在，需要重新开始新一轮|SIGNUP_PHONE_PASSWORD_MISMATCH::/i.test(message);
+}
+
+function isSignupPhonePasswordMismatchFailure(error) {
+  const message = getErrorMessage(error);
+  return /SIGNUP_PHONE_PASSWORD_MISMATCH::/i.test(message);
+}
+
+function getSignupPhonePasswordMismatchRestartPayload(preservedState = {}) {
+  const preservedEmail = String(preservedState.email || '').trim();
+  const preservedPassword = String(preservedState.password || '').trim();
+  const accountIdentifierType = String(preservedState.accountIdentifierType || '').trim().toLowerCase();
+  const activeSignupPhoneNumber = String(
+    preservedState.signupPhoneNumber
+    || preservedState.signupPhoneActivation?.phoneNumber
+    || preservedState.signupPhoneCompletedActivation?.phoneNumber
+    || (accountIdentifierType === 'phone' ? preservedState.accountIdentifier : '')
+    || ''
+  ).trim();
+  const shouldClearSignupPhoneRuntime = Boolean(
+    activeSignupPhoneNumber
+    || preservedState.signupPhoneActivation
+    || preservedState.signupPhoneCompletedActivation
+    || preservedState.signupPhoneVerificationRequestedAt
+    || preservedState.signupPhoneVerificationPurpose
+    || accountIdentifierType === 'phone'
+  );
+  const restorePayload = {};
+  if (preservedEmail) restorePayload.email = preservedEmail;
+  if (preservedPassword) restorePayload.password = preservedPassword;
+  if (shouldClearSignupPhoneRuntime) {
+    restorePayload.signupPhoneNumber = '';
+    restorePayload.signupPhoneActivation = null;
+    restorePayload.signupPhoneCompletedActivation = null;
+    restorePayload.signupPhoneVerificationRequestedAt = null;
+    restorePayload.signupPhoneVerificationPurpose = '';
+    if (accountIdentifierType === 'phone') {
+      restorePayload.accountIdentifierType = null;
+      restorePayload.accountIdentifier = '';
+    }
+  }
+  return {
+    activeSignupPhoneNumber,
+    preservedEmail,
+    restorePayload,
+    shouldClearSignupPhoneRuntime,
+  };
+}
+
+async function restartSignupPhonePasswordMismatchAttemptFromStep(step, restartCount, error) {
+  const preservedState = await getState();
+  const {
+    activeSignupPhoneNumber,
+    preservedEmail,
+    restorePayload,
+    shouldClearSignupPhoneRuntime,
+  } = getSignupPhonePasswordMismatchRestartPayload(preservedState);
+  const emailSuffix = preservedEmail ? `当前邮箱：${preservedEmail}；` : '';
+  const phoneSuffix = activeSignupPhoneNumber ? `当前手机号：${activeSignupPhoneNumber}；` : '';
+  const errorMessage = getErrorMessage(error);
+  const reasonLabel = /PHONE_RESEND_BANNED_NUMBER::|无法向此(?:电话|手机)号码发送短信|无法发送短信到此(?:电话|手机)号码|unable\s+to\s+send\s+(?:an?\s+)?(?:sms|text(?:\s+message)?)\s+to\s+(?:this|that)\s+(?:phone\s+)?number/i
+    .test(errorMessage)
+    ? '当前注册手机号无法接收短信'
+    : (/与此(?:电话|手机)号码相关联的帐户已存在|account\s+associated\s+with\s+this\s+phone\s+number\s+already\s+exists/i
+      .test(errorMessage)
+      ? '注册手机号异常'
+      : '手机号/密码不匹配');
+  await addLog(
+    `步骤 ${step}：检测到${reasonLabel}，准备丢弃当前注册手机号并回到步骤 1 重新开始（第 ${restartCount} 次重开）。${phoneSuffix}${emailSuffix}原因：${errorMessage}`,
+    'warn'
+  );
+  await invalidateDownstreamAfterStepRestart(1, {
+    logLabel: `步骤 ${step} 检测到${reasonLabel}后准备回到步骤 1 重新获取手机号重试（第 ${restartCount} 次重开）`,
+  });
+  if (shouldClearSignupPhoneRuntime) {
+    await addLog(`步骤 ${step}：已清空本轮注册手机号与接码订单，下一次重开将重新获取号码。`, 'warn');
+  }
+  if (Object.keys(restorePayload).length) {
+    await setState(restorePayload);
+  }
 }
 
 function isSignupPhonePasswordMismatchFailure(error) {
@@ -7609,6 +8006,11 @@ function isPlusCheckoutNonFreeTrialFailure(error) {
   return /PLUS_CHECKOUT_NON_FREE_TRIAL::|今日应付金额不是\s*0|没有免费试用资格/i.test(message);
 }
 
+function isGpcTaskEndedFailure(error) {
+  const message = String(typeof error === 'string' ? error : error?.message || '');
+  return /GPC_TASK_ENDED::/i.test(message);
+}
+
 function isGoPayCheckoutRestartRequiredFailure(error) {
   const message = getErrorMessage(error);
   return /GOPAY_RESTART_FROM_STEP6::|GOPAY_RETRY_REQUIRED::/i.test(message);
@@ -7679,6 +8081,18 @@ function getDownstreamStateResets(step, state = {}) {
     gopayHelperFlowId: '',
     gopayHelperChallengeId: '',
     gopayHelperStartPayload: null,
+    gopayHelperTaskId: '',
+    gopayHelperTaskStatus: '',
+    gopayHelperStatusText: '',
+    gopayHelperRemoteStage: '',
+    gopayHelperApiWaitingFor: '',
+    gopayHelperApiInputDeadlineAt: '',
+    gopayHelperApiInputWaitSeconds: 0,
+    gopayHelperLastInputError: '',
+    gopayHelperOtpInvalidCount: 0,
+    gopayHelperFailureStage: '',
+    gopayHelperFailureDetail: '',
+    gopayHelperTaskPayload: null,
     gopayHelperOrderCreatedAt: 0,
     gopayHelperPinPayload: null,
     gopayHelperResolvedOtp: '',
@@ -7768,6 +8182,7 @@ function getDownstreamStateResets(step, state = {}) {
         plusManualConfirmationTitle: '',
         plusManualConfirmationMessage: '',
         gopayHelperResolvedOtp: '',
+        gopayHelperLastInputError: '',
         gopayHelperOtpRequestId: '',
         gopayHelperOtpReferenceId: '',
       } : {}),
@@ -9324,6 +9739,7 @@ function getEmailGeneratorLabel(generator) {
   }
   if (generator === 'cloudflare') return 'Cloudflare 邮箱';
   if (generator === CLOUDFLARE_TEMP_EMAIL_GENERATOR) return 'Cloudflare Temp Email';
+  if (generator === CLOUD_MAIL_GENERATOR) return 'Cloud Mail';
   return 'Duck 邮箱';
 }
 const mail2925SessionManager = self.MultiPageBackgroundMail2925Session?.createMail2925SessionManager({
@@ -9497,6 +9913,11 @@ async function fetchDuckEmail(options = {}) {
 }
 
 async function fetchGeneratedEmail(state, options = {}) {
+  const currentState = state || await getState();
+  const generator = normalizeEmailGenerator(options.generator ?? currentState.emailGenerator);
+  if (generator === CLOUD_MAIL_GENERATOR) {
+    return fetchCloudMailAddress(currentState, options);
+  }
   return generatedEmailHelpers.fetchGeneratedEmail(state, options);
 }
 
@@ -9755,22 +10176,42 @@ function resolveGpcHelperBaseUrl(apiUrl = '') {
   let normalized = String(apiUrl || DEFAULT_GPC_HELPER_API_URL).trim().replace(/\/+$/g, '');
   normalized = normalized.replace(/\/api\/checkout\/start$/i, '');
   normalized = normalized.replace(/\/api\/gopay\/(?:otp|pin)$/i, '');
+  normalized = normalized.replace(/\/api\/gp\/tasks(?:\/[^/?#]+)?(?:\/(?:otp|pin|stop))?(?:\?.*)?$/i, '');
+  normalized = normalized.replace(/\/api\/gp\/balance(?:\?.*)?$/i, '');
   normalized = normalized.replace(/\/api\/card\/balance(?:\?.*)?$/i, '');
+  normalized = normalized.replace(/\/api\/card\/redeem-api-key(?:\?.*)?$/i, '');
   return normalized || DEFAULT_GPC_HELPER_API_URL;
 }
 
-function buildGpcCardBalanceRequestUrl(apiUrl = '', cardKey = '') {
+function buildGpcApiKeyBalanceRequestUrl(apiUrl = '') {
+  if (self.GoPayUtils?.buildGpcApiKeyBalanceUrl) {
+    return self.GoPayUtils.buildGpcApiKeyBalanceUrl(apiUrl);
+  }
   if (self.GoPayUtils?.buildGpcCardBalanceUrl) {
-    return self.GoPayUtils.buildGpcCardBalanceUrl(apiUrl, cardKey);
+    return self.GoPayUtils.buildGpcCardBalanceUrl(apiUrl);
   }
   const baseUrl = resolveGpcHelperBaseUrl(apiUrl);
   if (!baseUrl) {
     return '';
   }
-  return `${baseUrl}/api/card/balance?card_key=${encodeURIComponent(String(cardKey || '').trim())}`;
+  return `${baseUrl}/api/gp/balance`;
 }
 
-function formatGpcCardBalancePayload(payload = {}) {
+function buildGpcApiKeyHeaders(apiKey = '', extraHeaders = {}) {
+  if (self.GoPayUtils?.buildGpcApiKeyHeaders) {
+    return self.GoPayUtils.buildGpcApiKeyHeaders(apiKey, extraHeaders);
+  }
+  const headers = {
+    ...(extraHeaders && typeof extraHeaders === 'object' ? extraHeaders : {}),
+  };
+  const normalizedApiKey = String(apiKey || '').trim();
+  if (normalizedApiKey) {
+    headers['X-API-Key'] = normalizedApiKey;
+  }
+  return headers;
+}
+
+function formatGpcApiKeyBalancePayload(payload = {}) {
   if (self.GoPayUtils?.formatGpcBalancePayload) {
     return self.GoPayUtils.formatGpcBalancePayload(payload);
   }
@@ -9778,30 +10219,40 @@ function formatGpcCardBalancePayload(payload = {}) {
     return '';
   }
   const remaining = payload.remaining_uses ?? payload.remainingUses ?? payload.balance ?? payload.remaining;
+  const total = payload.total_uses ?? payload.totalUses;
+  const used = payload.used_uses ?? payload.usedUses;
   const status = String(payload.card_status || payload.cardStatus || payload.status || '').trim();
   return [
-    remaining !== undefined && remaining !== null && String(remaining).trim() !== '' ? `余额 ${remaining}` : '',
+    remaining !== undefined && remaining !== null && String(remaining).trim() !== ''
+      ? (total !== undefined && total !== null && String(total).trim() !== '' ? `余额 ${remaining}/${total}` : `余额 ${remaining}`)
+      : '',
+    used !== undefined && used !== null && String(used).trim() !== '' ? `已用 ${used}` : '',
     status ? `状态 ${status}` : '',
   ].filter(Boolean).join('，');
 }
 
-async function refreshGpcCardBalance(state = {}, options = {}) {
+async function refreshGpcApiKeyBalance(state = {}, options = {}) {
   const apiUrl = resolveGpcHelperBaseUrl(state?.gopayHelperApiUrl || DEFAULT_GPC_HELPER_API_URL);
-  const cardKey = String(state?.gopayHelperCardKey || state?.gpcCardKey || state?.cardKey || '').trim();
+  const apiKey = String(
+    state?.gopayHelperApiKey
+    || state?.gpcApiKey
+    || state?.apiKey
+    || ''
+  ).trim();
   if (!apiUrl) {
     throw new Error('缺少 GPC API 地址。');
   }
-  if (!cardKey) {
-    throw new Error('缺少 GPC 卡密。');
+  if (!apiKey) {
+    throw new Error('缺少 GPC API Key。');
   }
-  const requestUrl = buildGpcCardBalanceRequestUrl(apiUrl, cardKey);
+  const requestUrl = buildGpcApiKeyBalanceRequestUrl(apiUrl);
   if (!requestUrl) {
     throw new Error('缺少 GPC API 地址。');
   }
 
   const response = await fetch(requestUrl, {
     method: 'GET',
-    headers: { Accept: 'application/json' },
+    headers: buildGpcApiKeyHeaders(apiKey, { Accept: 'application/json' }),
   });
   const rawText = await response.text();
   let payload = {};
@@ -9810,20 +10261,28 @@ async function refreshGpcCardBalance(state = {}, options = {}) {
   } catch {
     payload = { raw: rawText };
   }
-  const balanceText = formatGpcCardBalancePayload(payload) || rawText || '未知';
+  const balancePayload = self.GoPayUtils?.unwrapGpcResponse
+    ? self.GoPayUtils.unwrapGpcResponse(payload)
+    : (payload?.data && typeof payload === 'object' ? payload.data : payload);
+  const balanceText = formatGpcApiKeyBalancePayload(payload) || rawText || '未知';
   const updates = {
     gopayHelperBalance: balanceText,
-    gopayHelperBalancePayload: payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : { raw: String(payload || '') },
+    gopayHelperBalancePayload: balancePayload && typeof balancePayload === 'object' && !Array.isArray(balancePayload) ? balancePayload : { raw: String(balancePayload || '') },
     gopayHelperBalanceUpdatedAt: Date.now(),
     gopayHelperBalanceError: '',
   };
-  const flowId = String(payload?.flow_id || payload?.flowId || '').trim();
+  const flowId = String(balancePayload?.flow_id || balancePayload?.flowId || '').trim();
   if (flowId) {
     updates.gopayHelperFlowId = flowId;
   }
 
-  if (!response.ok || payload?.ok === false) {
-    const detail = payload?.error || payload?.message || payload?.detail || `HTTP ${response.status}`;
+  const unifiedOk = self.GoPayUtils?.isGpcUnifiedResponseOk
+    ? self.GoPayUtils.isGpcUnifiedResponseOk(payload)
+    : true;
+  if (!response.ok || payload?.ok === false || !unifiedOk) {
+    const detail = self.GoPayUtils?.extractGpcResponseErrorDetail
+      ? self.GoPayUtils.extractGpcResponseErrorDetail(payload, response.status)
+      : (payload?.data?.detail || payload?.error || payload?.message || payload?.detail || `HTTP ${response.status}`);
     const errorUpdates = { ...updates, gopayHelperBalanceError: String(detail || '余额查询失败') };
     await setPersistentSettings(errorUpdates);
     broadcastDataUpdate(errorUpdates);
@@ -9841,6 +10300,8 @@ async function refreshGpcCardBalance(state = {}, options = {}) {
   );
   return { balance: balanceText, payload, updatedAt: updates.gopayHelperBalanceUpdatedAt };
 }
+
+const refreshGpcCardBalance = refreshGpcApiKeyBalance;
 
 const autoRunController = self.MultiPageBackgroundAutoRunController?.createAutoRunController({
   addLog,
@@ -9867,6 +10328,7 @@ const autoRunController = self.MultiPageBackgroundAutoRunController?.createAutoR
   isAddPhoneAuthFailure,
   isPhoneSmsPlatformRateLimitFailure,
   isPlusCheckoutNonFreeTrialFailure,
+  isGpcTaskEndedFailure,
   isRestartCurrentAttemptError,
   isStep4Route405RecoveryLimitFailure,
   isSignupUserAlreadyExistsFailure,
@@ -10348,6 +10810,8 @@ async function runAutoSequenceFromStep(startStep, context = {}) {
     }
   }
 
+  let restartFromStep1WithCurrentEmail = false;
+
   if (currentStartStep <= 3) {
     const latestState = await getState();
     const step3Status = latestState.stepStatuses?.[3] || 'pending';
@@ -10380,12 +10844,15 @@ async function runAutoSequenceFromStep(startStep, context = {}) {
     await addLog(`=== 目标 ${targetRun}/${totalRuns} 轮：继续执行剩余流程（第 ${attemptRuns} 次尝试）===`, 'info');
   }
 
+  if (restartFromStep1WithCurrentEmail) {
+    continue;
+  }
+
   const signupTabId = await getTabId('signup-page');
   if (signupTabId) {
     await chrome.tabs.update(signupTabId, { active: true });
   }
 
-  let restartFromStep1WithCurrentEmail = false;
   let step = Math.max(currentStartStep, 4);
   while (step <= (typeof getLastStepIdForState === 'function'
     ? getLastStepIdForState(await getState())
@@ -10679,6 +11146,7 @@ const verificationFlowHelpers = self.MultiPageBackgroundVerificationFlow?.create
   chrome,
   closeConflictingTabsForSource,
   CLOUDFLARE_TEMP_EMAIL_PROVIDER,
+  CLOUD_MAIL_PROVIDER,
   completeStepFromBackground,
   confirmCustomVerificationStepBypassRequest: (step) => chrome.runtime.sendMessage({
     type: 'REQUEST_CUSTOM_VERIFICATION_BYPASS_CONFIRMATION',
@@ -10697,6 +11165,7 @@ const verificationFlowHelpers = self.MultiPageBackgroundVerificationFlow?.create
   MAIL_2925_VERIFICATION_INTERVAL_MS,
   MAIL_2925_VERIFICATION_MAX_ATTEMPTS,
   pollCloudflareTempEmailVerificationCode,
+  pollCloudMailVerificationCode,
   pollHotmailVerificationCode,
   pollLuckmailVerificationCode,
   sendToContentScript,
@@ -10802,6 +11271,7 @@ const step4Executor = self.MultiPageBackgroundStep4?.createStep4Executor({
   isTabAlive,
   LUCKMAIL_PROVIDER,
   CLOUDFLARE_TEMP_EMAIL_PROVIDER,
+  CLOUD_MAIL_PROVIDER,
   resolveVerificationStep: verificationFlowHelpers.resolveVerificationStep,
   reuseOrCreateTab,
   sendToContentScript,
@@ -10856,6 +11326,7 @@ const step8Executor = self.MultiPageBackgroundStep8?.createStep8Executor({
   addLog,
   chrome,
   CLOUDFLARE_TEMP_EMAIL_PROVIDER,
+  CLOUD_MAIL_PROVIDER,
   completeStepFromBackground,
   confirmCustomVerificationStepBypass: verificationFlowHelpers.confirmCustomVerificationStepBypass,
   ensureMail2925MailboxSession,
@@ -11022,6 +11493,7 @@ const messageRouter = self.MultiPageBackgroundMessageRouter?.createMessageRouter
   clearAccountRunHistory: (...args) => clearAndBroadcastAccountRunHistory(...args),
   deleteAccountRunHistoryRecords: (...args) => deleteAndBroadcastAccountRunHistoryRecords(...args),
   clearAutoRunTimerAlarm,
+  clearFreeReusablePhoneActivation,
   clearLuckmailRuntimeState,
   clearStopRequest,
   closeLocalhostCallbackTabs,
@@ -11110,6 +11582,7 @@ const messageRouter = self.MultiPageBackgroundMessageRouter?.createMessageRouter
   setContributionMode,
   setEmailState,
   setEmailStateSilently,
+  setFreeReusablePhoneActivation,
   setSignupPhoneState,
   setSignupPhoneStateSilently,
   setIcloudAliasPreservedState,
@@ -11274,6 +11747,9 @@ function getMailConfig(state) {
   }
   if (provider === CLOUDFLARE_TEMP_EMAIL_PROVIDER) {
     return { provider: CLOUDFLARE_TEMP_EMAIL_PROVIDER, label: 'Cloudflare Temp Email' };
+  }
+  if (provider === 'cloudmail') {
+    return { provider: 'cloudmail', label: 'Cloud Mail' };
   }
   if (provider === '163') {
     return { source: 'mail-163', url: 'https://mail.163.com/js6/main.jsp?df=mail163_letter#module=mbox.ListModule%7C%7B%22fid%22%3A1%2C%22order%22%3A%22date%22%2C%22desc%22%3Atrue%7D', label: '163 邮箱' };

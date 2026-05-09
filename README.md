@@ -2,7 +2,7 @@
 
 一个用于批量跑通 ChatGPT OAuth 注册/登录流程的 Chrome 扩展。
 
-当前版本基于侧边栏控制，支持单步执行、整套自动执行、停止当前流程、保存常用配置，以及通过 DuckDuckGo / QQ / 163 / 163 VIP / 126 / Inbucket / Hotmail 协助获取验证码。
+当前版本基于侧边栏控制，支持单步执行、整套自动执行、停止当前流程、保存常用配置，以及通过 DuckDuckGo / QQ / 163 / 163 VIP / 126 / Inbucket / Hotmail / Cloud Mail 协助获取验证码。
 
 ## 插件效果
 
@@ -40,6 +40,7 @@
 - 自动获取注册验证码与登录验证码
 - 支持 `Hotmail`：继续使用 `邮箱 + 客户端 ID + 刷新令牌（refresh token）`，并可在远程服务与本地助手两种模式间切换
 - 支持 `2925`：新增多账号池、自动登录登出、Step 4 / Step 8 命中“子邮箱已达上限邮箱”后的 24 小时禁用与自动切号
+- 支持 `Cloud Mail`：可通过 skymail.ink API 生成自定义域邮箱，也可作为转发收件通道轮询验证码
 - 支持 `QQ Mail`、`163 Mail`、`163 VIP Mail`、`126 Mail`、`Inbucket mailbox`
 - 支持从 DuckDuckGo Email Protection 自动生成新的 `@duck.com` 地址
 - 支持基于 Cloudflare 自定义域名自动生成随机邮箱前缀
@@ -208,10 +209,11 @@ Step 1 和 Step 10 都依赖这个地址。
 
 ### `Mail`
 
-支持七种验证码来源：
+支持八种验证码来源：
 
 - `Hotmail`
 - `2925`
+- `Cloud Mail`
 - `163 Mail`
 - `163 VIP Mail`
 - `126 Mail`
@@ -222,6 +224,7 @@ Step 1 和 Step 10 都依赖这个地址。
 
 - `Hotmail` 通过侧边栏里的 Hotmail 账号池选择账号，可切换为远程服务模式或本地助手模式
 - `2925` 通过侧边栏里的 2925 账号池选择账号，并在 Step 4 / Step 8 前自动校验网页邮箱登录态
+- `Cloud Mail` 通过侧边栏配置 API 地址、管理员账号、接收邮箱或生成域名，可直接生成邮箱或轮询转发收件箱
 - `QQ`、`163`、`163 VIP`、`126` 用于直接轮询网页邮箱
 - `Inbucket` 通过你在侧边栏里配置的 host 访问 `mailbox` 页面：`https://<your-inbucket-host>/m/<mailbox>/`
 
@@ -521,7 +524,7 @@ Cloudflare 模式下，插件不会再调用 Cloudflare API 创建路由。
 1. Step 1 打开 `https://chatgpt.com/`
 2. 根据 `Mail` 选择邮箱来源
 3. 如果 `Mail = Hotmail`，会从账号池自动分配一个可用账号
-4. 如果 `Mail = 自定义邮箱` 且配置了 `自定义号池`，会按号池顺序分配当前轮邮箱；否则如果不是 Hotmail，则按当前“邮箱生成”配置尝试自动获取或分配邮箱（Duck / Cloudflare / iCloud / 自定义邮箱池等）
+4. 如果 `Mail = 自定义邮箱` 且配置了 `自定义号池`，会按号池顺序分配当前轮邮箱；否则如果不是 Hotmail，则按当前“邮箱生成”配置尝试自动获取或分配邮箱（Duck / Cloudflare / Cloud Mail / iCloud / 自定义邮箱池等）
 5. Step 2 点击注册、填写邮箱，并按真实落地页进入密码页或直接进入邮箱验证码页
 6. 如果自动获取失败，暂停并等待你在侧边栏填写邮箱后点击 `Continue`
 7. 继续执行 Step 3 ~ Step 10
@@ -605,7 +608,7 @@ Cloudflare 模式下，插件不会再调用 Cloudflare API 创建路由。
 这一步只负责等待注册完成后的页面状态稳定：
 
 - 固定等待 20 秒
-- 不再清理 `chatgpt.com / openai.com` 相关 cookies
+- 默认不清理 `chatgpt.com / openai.com` 相关 cookies；侧栏开启第六步 `清 Cookies` 后才会在等待结束后执行清理
 - 等待完成后直接进入后续 OAuth 登录链路
 
 

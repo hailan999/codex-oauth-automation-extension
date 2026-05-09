@@ -19,6 +19,7 @@
       isTabAlive,
       LUCKMAIL_PROVIDER,
       CLOUDFLARE_TEMP_EMAIL_PROVIDER,
+      CLOUD_MAIL_PROVIDER = 'cloudmail',
       resolveVerificationStep,
       reuseOrCreateTab,
       sendToContentScript,
@@ -238,6 +239,7 @@
         mail.provider === HOTMAIL_PROVIDER
         || mail.provider === LUCKMAIL_PROVIDER
         || mail.provider === CLOUDFLARE_TEMP_EMAIL_PROVIDER
+        || mail.provider === CLOUD_MAIL_PROVIDER
       ) {
         await addLog(`步骤 4：正在通过 ${mail.label} 轮询验证码...`);
       } else if (mail.provider === '2925') {
@@ -263,6 +265,7 @@
         HOTMAIL_PROVIDER,
         LUCKMAIL_PROVIDER,
         CLOUDFLARE_TEMP_EMAIL_PROVIDER,
+        CLOUD_MAIL_PROVIDER,
       ].includes(mail.provider);
       const signupProfile = buildSignupProfileForVerificationStep();
 
