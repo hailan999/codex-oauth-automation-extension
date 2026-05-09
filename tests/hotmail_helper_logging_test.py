@@ -174,7 +174,8 @@ class HotmailHelperLoggingTest(unittest.TestCase):
     def test_sync_chatgpt_session_snapshots_writes_json_file(self):
         target = Path(__file__).resolve().parents[1] / "data" / ".test-chatgpt-session-snapshots.json"
         try:
-            with mock.patch.object(hotmail_helper, "CHATGPT_SESSION_SNAPSHOT_PATH", str(target)):
+            with mock.patch.object(hotmail_helper, "CHATGPT_SESSION_SNAPSHOT_PATH", str(target)), \
+                 mock.patch.object(hotmail_helper, "REGISTERED_ACCOUNTS_DB_PATH", ""):
                 file_path = hotmail_helper.sync_chatgpt_session_snapshots({
                     "snapshots": [{
                         "id": "saved@example.com:1",
@@ -183,6 +184,9 @@ class HotmailHelperLoggingTest(unittest.TestCase):
                         "accountIdentifier": "saved@example.com",
                         "email": "saved@example.com",
                         "password": "pw",
+                        "proxyAddress": "http://user:pass@127.0.0.1:7890",
+                        "hotmailClientId": "client-id-1",
+                        "hotmailRefreshToken": "refresh-token-1",
                         "sessionStatus": 200,
                         "session": {"user": {"email": "saved@example.com"}},
                     }],
@@ -192,9 +196,28 @@ class HotmailHelperLoggingTest(unittest.TestCase):
             payload = json.loads(target.read_text(encoding="utf-8"))
             self.assertEqual(payload["count"], 1)
             self.assertEqual(payload["snapshots"][0]["email"], "saved@example.com")
+            self.assertEqual(payload["snapshots"][0]["proxyAddress"], "http://user:pass@127.0.0.1:7890")
+            self.assertEqual(payload["snapshots"][0]["hotmailClientId"], "client-id-1")
+            self.assertEqual(payload["snapshots"][0]["hotmailRefreshToken"], "refresh-token-1")
             self.assertEqual(payload["snapshots"][0]["session"]["user"]["email"], "saved@example.com")
         finally:
             target.unlink(missing_ok=True)
+
+    def test_build_chatgpt_registered_account_row_keeps_proxy_and_hotmail_credentials(self):
+        row = hotmail_helper.build_chatgpt_registered_account_row({
+            "savedAt": "2026-05-06T00:00:00Z",
+            "email": "saved@example.com",
+            "password": "pw",
+            "proxyAddress": "http://user:pass@127.0.0.1:7890",
+            "hotmailClientId": "client-id-1",
+            "hotmailRefreshToken": "refresh-token-1",
+            "sessionStatus": 200,
+            "session": {"user": {"email": "saved@example.com"}},
+        })
+
+        self.assertEqual(row["proxy_add"], "http://user:pass@127.0.0.1:7890")
+        self.assertEqual(row["hot_client"], "client-id-1")
+        self.assertEqual(row["hot_rt"], "refresh-token-1")
 
 
 if __name__ == "__main__":

@@ -103,3 +103,118 @@ test('message router appends success record on Plus final step instead of hard-c
   assert.equal(appendCalls.length, 1);
   assert.equal(appendCalls[0][0], 'success');
 });
+
+test('message router marks Hotmail used after signup-only session save final step', async () => {
+  const markCalls = [];
+  const appendCalls = [];
+  const state = {
+    flowStepLimit: 'signup',
+    mailProvider: 'hotmail-api',
+    currentHotmailAccountId: 'hotmail-1',
+    stepStatuses: { 7: 'pending' },
+  };
+  const router = api.createMessageRouter({
+    addLog: async () => {},
+    appendAccountRunRecord: async (...args) => {
+      appendCalls.push(args);
+    },
+    batchUpdateLuckmailPurchases: async () => {},
+    buildLocalhostCleanupPrefix: () => '',
+    buildLuckmailSessionSettingsPayload: () => ({}),
+    buildPersistentSettingsPayload: () => ({}),
+    broadcastDataUpdate: () => {},
+    cancelScheduledAutoRun: async () => {},
+    checkIcloudSession: async () => {},
+    clearAutoRunTimerAlarm: async () => {},
+    clearLuckmailRuntimeState: async () => {},
+    clearStopRequest: () => {},
+    closeLocalhostCallbackTabs: async () => {},
+    closeTabsByUrlPrefix: async () => {},
+    deleteHotmailAccount: async () => {},
+    deleteHotmailAccounts: async () => {},
+    deleteIcloudAlias: async () => {},
+    deleteUsedIcloudAliases: async () => {},
+    disableUsedLuckmailPurchases: async () => {},
+    doesStepUseCompletionSignal: () => false,
+    ensureManualInteractionAllowed: async () => ({}),
+    executeStep: async () => {},
+    executeStepViaCompletionSignal: async () => {},
+    exportSettingsBundle: async () => ({}),
+    fetchGeneratedEmail: async () => '',
+    finalizePhoneActivationAfterSuccessfulFlow: async () => {},
+    finalizeStep3Completion: async () => {},
+    finalizeIcloudAliasAfterSuccessfulFlow: async () => {},
+    findHotmailAccount: async () => null,
+    flushCommand: async () => {},
+    getCurrentLuckmailPurchase: () => null,
+    getPendingAutoRunTimerPlan: () => null,
+    getSourceLabel: () => '',
+    getState: async () => state,
+    getLastStepIdForState: () => 7,
+    getStepDefinitionForState: (step) => ({ id: step, key: step === 7 ? 'save-chatgpt-session' : 'unknown' }),
+    getStepIdsForState: () => [1, 2, 3, 4, 5, 6, 7],
+    getTabId: async () => null,
+    getStopRequested: () => false,
+    handleAutoRunLoopUnhandledError: async () => {},
+    handleCloudflareSecurityBlocked: async () => '',
+    importSettingsBundle: async () => {},
+    invalidateDownstreamAfterStepRestart: async () => {},
+    isCloudflareSecurityBlockedError: () => false,
+    isAutoRunLockedState: () => false,
+    isHotmailProvider: (candidate) => String(candidate?.mailProvider || '') === 'hotmail-api',
+    isLocalhostOAuthCallbackUrl: () => true,
+    isLuckmailProvider: () => false,
+    isStopError: () => false,
+    isTabAlive: async () => false,
+    launchAutoRunTimerPlan: async () => {},
+    listIcloudAliases: async () => [],
+    listLuckmailPurchasesForManagement: async () => [],
+    markCurrentRegistrationAccountUsed: async (...args) => {
+      markCalls.push(args);
+    },
+    normalizeHotmailAccounts: (items) => items,
+    normalizeRunCount: (value) => value,
+    AUTO_RUN_TIMER_KIND_SCHEDULED_START: 'scheduled',
+    notifyStepComplete: () => {},
+    notifyStepError: () => {},
+    patchHotmailAccount: async () => {},
+    patchMail2925Account: async () => {},
+    registerTab: async () => {},
+    requestStop: async () => {},
+    resetState: async () => {},
+    resumeAutoRun: async () => {},
+    scheduleAutoRun: async () => {},
+    selectLuckmailPurchase: async () => {},
+    setCurrentHotmailAccount: async () => {},
+    setCurrentMail2925Account: async () => {},
+    setContributionMode: async () => {},
+    setEmailState: async () => {},
+    setEmailStateSilently: async () => {},
+    setIcloudAliasPreservedState: async () => {},
+    setIcloudAliasUsedState: async () => {},
+    setLuckmailPurchaseDisabledState: async () => {},
+    setLuckmailPurchasePreservedState: async () => {},
+    setLuckmailPurchaseUsedState: async () => {},
+    setPersistentSettings: async () => {},
+    setState: async () => {},
+    setStepStatus: async () => {},
+    skipAutoRunCountdown: async () => false,
+    skipStep: async () => {},
+    startAutoRunLoop: async () => {},
+    syncHotmailAccounts: async () => {},
+    testHotmailAccountMailAccess: async () => {},
+    upsertHotmailAccount: async () => {},
+    verifyHotmailAccount: async () => {},
+  });
+
+  await router.handleMessage({ type: 'STEP_COMPLETE', step: 7, payload: {} }, {});
+
+  assert.equal(markCalls.length, 1);
+  assert.equal(markCalls[0][0].currentHotmailAccountId, 'hotmail-1');
+  assert.deepEqual(markCalls[0][1], {
+    logPrefix: '仅注册+保存流程完成',
+    level: 'ok',
+  });
+  assert.equal(appendCalls.length, 1);
+  assert.equal(appendCalls[0][0], 'success');
+});

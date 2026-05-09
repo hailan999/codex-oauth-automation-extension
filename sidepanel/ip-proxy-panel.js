@@ -1,9 +1,14 @@
 // sidepanel/ip-proxy-panel.js — IP代理面板（轻量解耦）
 function normalizeIpProxyService(value = '') {
   const normalized = String(value || '').trim().toLowerCase();
-  const enabledServices = Array.isArray(globalThis.IP_PROXY_ENABLED_SERVICES)
-    ? globalThis.IP_PROXY_ENABLED_SERVICES
-    : [DEFAULT_IP_PROXY_SERVICE];
+  let enabledServices = [DEFAULT_IP_PROXY_SERVICE];
+  try {
+    enabledServices = Array.isArray(IP_PROXY_ENABLED_SERVICES) ? IP_PROXY_ENABLED_SERVICES : enabledServices;
+  } catch (err) {
+    enabledServices = Array.isArray(globalThis.IP_PROXY_ENABLED_SERVICES)
+      ? globalThis.IP_PROXY_ENABLED_SERVICES
+      : enabledServices;
+  }
   if (enabledServices.includes(normalized)) {
     return normalized;
   }
@@ -1313,7 +1318,7 @@ function updateIpProxyUI(state = latestState) {
     rowIpProxyFold.style.display = showSettings ? '' : 'none';
   }
   if (rowIpProxyPromo) {
-    rowIpProxyPromo.style.display = showSettings ? '' : 'none';
+    rowIpProxyPromo.style.display = showSettings && service === '711proxy' ? '' : 'none';
   }
   if (rowIpProxyService) {
     rowIpProxyService.style.display = showSettings ? '' : 'none';
@@ -1380,7 +1385,7 @@ function updateIpProxyUI(state = latestState) {
   scheduleIpProxyPromoOverflowCheck();
   if (selectIpProxyService) {
     selectIpProxyService.value = service;
-    selectIpProxyService.disabled = true;
+    selectIpProxyService.disabled = !enabled;
   }
   if (typeof updateIpProxyServiceLoginButtonState === 'function') {
     updateIpProxyServiceLoginButtonState({

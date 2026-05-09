@@ -9,8 +9,8 @@ function loadIpProxyCore({ accountListEnabled = true } = {}) {
 const self = {};
 const chrome = {};
 const DEFAULT_IP_PROXY_SERVICE = '711proxy';
-const IP_PROXY_SERVICE_VALUES = ['711proxy', 'lumiproxy', 'iproyal', 'omegaproxy'];
-const IP_PROXY_ENABLED_SERVICE_VALUES = ['711proxy'];
+const IP_PROXY_SERVICE_VALUES = ['711proxy', 'webshare', 'lumiproxy', 'iproyal', 'omegaproxy'];
+const IP_PROXY_ENABLED_SERVICE_VALUES = ['711proxy', 'webshare'];
 const DEFAULT_IP_PROXY_MODE = 'account';
 const IP_PROXY_MODE_VALUES = ['api', 'account'];
 const DEFAULT_IP_PROXY_PROTOCOL = 'http';
@@ -91,6 +91,28 @@ test('IP proxy parser ignores disabled lines and normalizes proxy entries', () =
   });
   assert.equal(pool[1].host, 'us.proxy.example');
   assert.equal(pool[1].port, 8080);
+});
+
+test('Webshare account list parses as a switchable proxy pool', () => {
+  const api = loadIpProxyCore();
+  const pool = api.getAccountModeProxyPoolFromState({
+    ipProxyService: 'webshare',
+    ipProxyMode: 'account',
+    ipProxyAccountList: [
+      'p.webshare.io:80:webshare-user-jp-1:secret',
+      'p.webshare.io:80:webshare-user-jp-2:secret',
+    ].join('\n'),
+    ipProxyHost: 'ignored.example',
+    ipProxyPort: '8080',
+    ipProxyUsername: 'ignored',
+    ipProxyPassword: 'ignored',
+  }, 'webshare');
+
+  assert.equal(pool.length, 2);
+  assert.deepStrictEqual(pool.map((entry) => entry.provider), ['webshare', 'webshare']);
+  assert.deepStrictEqual(pool.map((entry) => entry.username), ['webshare-user-jp-1', 'webshare-user-jp-2']);
+  assert.equal(pool[0].host, 'p.webshare.io');
+  assert.equal(pool[0].port, 80);
 });
 
 test('IP proxy probe payload parser extracts country from common probe endpoints', () => {

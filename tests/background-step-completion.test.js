@@ -57,15 +57,19 @@ let stopRequested = false;
 const LOG_PREFIX = '[test]';
 const STOP_ERROR_MESSAGE = '流程已被用户停止。';
 const LAST_STEP_ID = 10;
+let stepKey = '';
 function getErrorMessage(error) {
   return error?.message || String(error || '');
 }
 async function getState() {
   events.push({ type: 'getState' });
-  return { stepStatuses: {}, contributionMode: true };
+  return { stepStatuses: {}, contributionMode: true, mailProvider: 'hotmail-api', currentHotmailAccountId: 'hot-1' };
 }
 function getLastStepIdForState() {
   return lastStepId;
+}
+function getStepExecutionKeyForState() {
+  return stepKey;
 }
 async function setStepStatus(step, status) {
   events.push({ type: 'status', step, status });
@@ -90,10 +94,22 @@ async function handleStepData(step, payload) {
 async function appendAndBroadcastAccountRunRecord(status, state) {
   events.push({ type: 'record', status, state });
 }
+function isHotmailProvider(state) {
+  return state?.mailProvider === 'hotmail-api';
+}
+async function patchHotmailAccount(accountId, updates) {
+  events.push({ type: 'mark-used', accountId, updates });
+}
 ${extractFunction('runCompletedStepSideEffects')}
+${extractFunction('finalizeRegistrationResourceUseBeforeFinalCompletion')}
 ${extractFunction('reportCompletedStepSideEffectError')}
 ${extractFunction('completeStepFromBackground')}
-return { completeStepFromBackground };
+return {
+  completeStepFromBackground,
+  setStepKey(value) {
+    stepKey = value;
+  },
+};
 `)(events, lastStepId);
 }
 
@@ -124,4 +140,17 @@ test('completeStepFromBackground keeps non-final step data handling before compl
   const types = events.map((event) => event.type);
   assert.equal(types.indexOf('handle-done') < types.indexOf('notify'), true);
   assert.equal(types.includes('record'), false);
+});
+
+test('completeStepFromBackground marks signup-only Hotmail before final completion signal', async () => {
+  const events = [];
+  const api = createApi(events, 7);
+  api.setStepKey('save-chatgpt-session');
+
+  await api.completeStepFromBackground(7, { chatgptSessionSavedAt: '2026-05-09T00:00:00.000Z' });
+
+  const types = events.map((event) => event.type);
+  assert.equal(types.indexOf('mark-used') < types.indexOf('notify'), true);
+  assert.equal(events.find((event) => event.type === 'mark-used').accountId, 'hot-1');
+  assert.equal(events.find((event) => event.type === 'mark-used').updates.used, true);
 });

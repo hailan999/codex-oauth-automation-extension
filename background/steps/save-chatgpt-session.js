@@ -64,6 +64,8 @@
     function buildSnapshot(state, sessionResult) {
       const now = new Date().toISOString();
       const accountIdentifier = String(state.accountIdentifier || state.email || state.signupPhoneNumber || '').trim();
+      const proxyAddress = buildProxyAddressFromState(state);
+      const hotmailCredentials = resolveCurrentHotmailCredentials(state);
       return {
         id: `${accountIdentifier || 'chatgpt'}:${Date.now()}`,
         savedAt: now,
@@ -72,8 +74,42 @@
         email: String(state.email || '').trim(),
         phoneNumber: String(state.signupPhoneNumber || '').trim(),
         password: String(state.password || state.customPassword || ''),
+        proxyAddress,
+        hotmailClientId: hotmailCredentials.clientId,
+        hotmailRefreshToken: hotmailCredentials.refreshToken,
         session: sessionResult.payload,
         sessionStatus: Number(sessionResult.status) || 0,
+      };
+    }
+
+    function buildProxyAddressFromState(state = {}) {
+      const current = state.ipProxyCurrent && typeof state.ipProxyCurrent === 'object'
+        ? state.ipProxyCurrent
+        : null;
+      const host = String(current?.host || state.ipProxyAppliedHost || state.ipProxyHost || '').trim();
+      const port = Number(current?.port || state.ipProxyAppliedPort || state.ipProxyPort || 0);
+      if (!host || !port) {
+        return '';
+      }
+
+      const protocol = String(current?.protocol || state.ipProxyProtocol || 'http').trim() || 'http';
+      const username = String(current?.username || state.ipProxyUsername || '').trim();
+      const password = String(current?.password || state.ipProxyPassword || '');
+      const auth = username
+        ? `${encodeURIComponent(username)}${password ? `:${encodeURIComponent(password)}` : ''}@`
+        : '';
+      return `${protocol}://${auth}${host}:${port}`;
+    }
+
+    function resolveCurrentHotmailCredentials(state = {}) {
+      const currentId = String(state.currentHotmailAccountId || '').trim();
+      const accounts = Array.isArray(state.hotmailAccounts) ? state.hotmailAccounts : [];
+      const account = currentId
+        ? accounts.find((item) => String(item?.id || '').trim() === currentId)
+        : null;
+      return {
+        clientId: String(account?.clientId || '').trim(),
+        refreshToken: String(account?.refreshToken || ''),
       };
     }
 

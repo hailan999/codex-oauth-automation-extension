@@ -86,15 +86,15 @@
 
 本 PR 是“先可用，再扩展”的第一阶段：
 
-1. 服务商主路径按 `711` 优先。
+1. 服务商主路径开放 `711Proxy` 与 `Webshare` 的账号密码模式。
 2. `API 模式`在 UI 中保留但禁用（暂未开放）。
-3. `账号列表模式`目前关闭（防止多条目与鉴权缓存复用带来的不稳定）。
+3. `账号列表模式`已开放，支持每行一条 `host:port` 或 `host:port:username:password`。
 
 对应开关位于：
 
 - `sidepanel/sidepanel.js`：`IP_PROXY_API_MODE_ENABLED = false`
-- `sidepanel/sidepanel.js`：`IP_PROXY_ACCOUNT_LIST_ENABLED = false`
-- `background.js`：`IP_PROXY_ACCOUNT_LIST_ENABLED = false`
+- `sidepanel/sidepanel.js`：`IP_PROXY_ACCOUNT_LIST_ENABLED = true`
+- `background.js`：`IP_PROXY_ACCOUNT_LIST_ENABLED = true`
 
 ## 5. 使用方式（操作步骤）
 

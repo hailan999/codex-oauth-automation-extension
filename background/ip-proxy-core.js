@@ -65,9 +65,14 @@ const IP_PROXY_GUARD_REGEX = '^https?:\\/\\/([^\\/]+\\.)?(chatgpt\\.com|openai\\
 
 function normalizeIpProxyProviderValue(value = '') {
   const normalized = String(value || '').trim().toLowerCase();
-  const enabledValues = Array.isArray(globalThis.IP_PROXY_ENABLED_SERVICE_VALUES)
-    ? globalThis.IP_PROXY_ENABLED_SERVICE_VALUES
-    : [];
+  let enabledValues = [];
+  try {
+    enabledValues = Array.isArray(IP_PROXY_ENABLED_SERVICE_VALUES) ? IP_PROXY_ENABLED_SERVICE_VALUES : [];
+  } catch (err) {
+    enabledValues = Array.isArray(globalThis.IP_PROXY_ENABLED_SERVICE_VALUES)
+      ? globalThis.IP_PROXY_ENABLED_SERVICE_VALUES
+      : [];
+  }
   if (enabledValues.includes(normalized)) {
     return normalized;
   }

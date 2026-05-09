@@ -322,6 +322,30 @@
       }
     }
 
+    async function handleFinalSignupSessionStepData(stepKey) {
+      if (stepKey !== 'save-chatgpt-session') {
+        return;
+      }
+
+      const latestState = await getState();
+      if (typeof markCurrentRegistrationAccountUsed === 'function') {
+        await markCurrentRegistrationAccountUsed(latestState, {
+          logPrefix: '仅注册+保存流程完成',
+          level: 'ok',
+        });
+      } else if (latestState.currentHotmailAccountId && isHotmailProvider(latestState)) {
+        await patchHotmailAccount(latestState.currentHotmailAccountId, {
+          used: true,
+          lastUsedAt: Date.now(),
+        });
+        await addLog('仅注册+保存流程完成：当前 Hotmail 账号已自动标记为已用。', 'ok');
+      }
+
+      if (typeof finalizePhoneActivationAfterSuccessfulFlow === 'function') {
+        await finalizePhoneActivationAfterSuccessfulFlow(latestState);
+      }
+    }
+
     async function handleStepData(step, payload) {
       if (step === 1) {
         const updates = {};
@@ -568,10 +592,14 @@
           const lastStepId = typeof getLastStepIdForState === 'function'
             ? getLastStepIdForState(completionStateCandidate)
             : 10;
+          const completedStepKey = getStepKeyForState(message.step, completionStateCandidate);
           const completionState = message.step === lastStepId ? completionStateCandidate : null;
           await setStepStatus(message.step, 'completed');
           await addLog('已完成', 'ok', { step: message.step });
           await handleStepData(message.step, message.payload);
+          if (message.step === lastStepId) {
+            await handleFinalSignupSessionStepData(completedStepKey);
+          }
           if (message.step === lastStepId && typeof appendAccountRunRecord === 'function') {
             await appendAccountRunRecord('success', completionState);
           }

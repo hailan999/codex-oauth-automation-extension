@@ -4,6 +4,7 @@ import imaplib
 import json
 import os
 import re
+import sqlite3
 import threading
 import time
 import traceback
@@ -66,6 +67,24 @@ BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 ACCOUNT_LOG_PATH = os.path.join(BASE_DIR, "data", "account-run-history.txt")
 ACCOUNT_RECORDS_SNAPSHOT_PATH = os.path.join(BASE_DIR, "data", "account-run-history.json")
 CHATGPT_SESSION_SNAPSHOT_PATH = os.path.join(BASE_DIR, "data", "chatgpt-session-snapshots.json")
+REGISTERED_ACCOUNTS_DB_PATH = os.environ.get(
+    "REGISTERED_ACCOUNTS_DB_PATH",
+    r"E:\development\git_projects\Gpt-Agreement-Payment\output\webui.db",
+)
+REGISTERED_ACCOUNT_KEEP_EXISTING_WHEN_EMPTY = {
+    "password",
+    "session_token",
+    "access_token",
+    "device_id",
+    "csrf_token",
+    "id_token",
+    "refresh_token",
+    "cookie_header",
+    "proxy_add",
+    "hot_client",
+    "hot_rt",
+}
+REGISTERED_ACCOUNT_INSERT_ONLY_COLUMNS = {"status"}
 ACCOUNT_RECORDS_LOCK = threading.Lock()
 
 
@@ -325,18 +344,26 @@ def normalize_chatgpt_session_snapshot(snapshot):
 
     saved_at = str(snapshot.get("savedAt") or "").strip() or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     account_identifier = str(snapshot.get("accountIdentifier") or snapshot.get("email") or snapshot.get("phoneNumber") or "").strip()
+    user = session.get("user") if isinstance(session.get("user"), dict) else {}
     if not account_identifier:
-        user = session.get("user") if isinstance(session.get("user"), dict) else {}
         account_identifier = str(user.get("email") or "").strip()
+    email_addr = str(snapshot.get("email") or "").strip()
+    if not email_addr and "@" in account_identifier:
+        email_addr = account_identifier
+    if not email_addr:
+        email_addr = str(user.get("email") or "").strip()
 
     return {
         "id": str(snapshot.get("id") or f"{account_identifier or 'chatgpt'}:{int(time.time() * 1000)}").strip(),
         "savedAt": saved_at,
         "accountIdentifierType": str(snapshot.get("accountIdentifierType") or "").strip(),
         "accountIdentifier": account_identifier,
-        "email": str(snapshot.get("email") or "").strip(),
+        "email": email_addr,
         "phoneNumber": str(snapshot.get("phoneNumber") or "").strip(),
         "password": str(snapshot.get("password") or ""),
+        "proxyAddress": str(snapshot.get("proxyAddress") or snapshot.get("proxy_add") or "").strip(),
+        "hotmailClientId": str(snapshot.get("hotmailClientId") or snapshot.get("hot_client") or "").strip(),
+        "hotmailRefreshToken": str(snapshot.get("hotmailRefreshToken") or snapshot.get("hot_rt") or ""),
         "sessionStatus": int(snapshot.get("sessionStatus") or 0),
         "session": session,
     }
@@ -363,6 +390,138 @@ def normalize_chatgpt_session_snapshot_payload(payload):
     }
 
 
+def parse_iso_timestamp_seconds(value):
+    raw = str(value or "").strip()
+    if not raw:
+        return time.time()
+    try:
+        normalized = raw.replace("Z", "+00:00")
+        return datetime.fromisoformat(normalized).timestamp()
+    except ValueError:
+        return time.time()
+
+
+def get_registered_accounts_columns(connection):
+    rows = connection.execute("PRAGMA table_info(registered_accounts)").fetchall()
+    return {row[1] for row in rows}
+
+
+def ensure_registered_accounts_schema(connection):
+    columns = get_registered_accounts_columns(connection)
+    if not columns:
+        raise RuntimeError("SQLite 中未找到 registered_accounts 表")
+
+    if "status" not in columns:
+        connection.execute("ALTER TABLE registered_accounts ADD COLUMN status TEXT DEFAULT 'INITIAL'")
+        columns.add("status")
+    if "proxy_add" not in columns:
+        connection.execute("ALTER TABLE registered_accounts ADD COLUMN proxy_add TEXT DEFAULT ''")
+        columns.add("proxy_add")
+    if "hot_client" not in columns:
+        connection.execute("ALTER TABLE registered_accounts ADD COLUMN hot_client TEXT DEFAULT ''")
+        columns.add("hot_client")
+    if "hot_rt" not in columns:
+        connection.execute("ALTER TABLE registered_accounts ADD COLUMN hot_rt TEXT DEFAULT ''")
+        columns.add("hot_rt")
+    return columns
+
+
+def build_chatgpt_registered_account_row(snapshot):
+    session = snapshot.get("session") if isinstance(snapshot.get("session"), dict) else {}
+    account = session.get("account") if isinstance(session.get("account"), dict) else {}
+    user = session.get("user") if isinstance(session.get("user"), dict) else {}
+    email_addr = str(snapshot.get("email") or user.get("email") or snapshot.get("accountIdentifier") or "").strip()
+    if "@" not in email_addr:
+        return None
+
+    saved_at = str(snapshot.get("savedAt") or "").strip() or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    saved_at_seconds = parse_iso_timestamp_seconds(saved_at)
+    session_token = str(session.get("sessionToken") or "").strip()
+    access_token = str(session.get("accessToken") or "").strip()
+
+    return {
+        "email": email_addr,
+        "ts": saved_at,
+        "password": str(snapshot.get("password") or ""),
+        "session_token": session_token,
+        "access_token": access_token,
+        "device_id": str(account.get("id") or user.get("id") or "").strip(),
+        "csrf_token": "",
+        "id_token": "",
+        "refresh_token": "",
+        "cookie_header": f"__Secure-next-auth.session-token={session_token}" if session_token else "",
+        "status": "INITIAL",
+        "proxy_add": str(snapshot.get("proxyAddress") or snapshot.get("proxy_add") or "").strip(),
+        "hot_client": str(snapshot.get("hotmailClientId") or snapshot.get("hot_client") or "").strip(),
+        "hot_rt": str(snapshot.get("hotmailRefreshToken") or snapshot.get("hot_rt") or ""),
+        "created_at": saved_at_seconds,
+        "last_check_at": saved_at_seconds,
+        "last_check_status": str(snapshot.get("sessionStatus") or ""),
+        "last_check_message": "chatgpt session synced",
+    }
+
+
+def upsert_registered_account(connection, columns, row):
+    writable = {key: value for key, value in row.items() if key in columns}
+    if "email" not in writable:
+        raise RuntimeError("registered_accounts 缺少 email 字段")
+
+    existing = connection.execute(
+        "SELECT id FROM registered_accounts WHERE email = ? ORDER BY id DESC LIMIT 1",
+        (row["email"],),
+    ).fetchone()
+
+    if existing:
+        update_columns = [
+            key for key, value in writable.items()
+            if key != "email"
+            and key not in REGISTERED_ACCOUNT_INSERT_ONLY_COLUMNS
+            and not (key in REGISTERED_ACCOUNT_KEEP_EXISTING_WHEN_EMPTY and value == "")
+        ]
+        if update_columns:
+            assignments = ", ".join(f"{key} = ?" for key in update_columns)
+            values = [writable[key] for key in update_columns]
+            values.append(existing[0])
+            connection.execute(
+                f"UPDATE registered_accounts SET {assignments} WHERE id = ?",
+                values,
+            )
+        return "updated"
+
+    insert_columns = list(writable)
+    placeholders = ", ".join("?" for _ in insert_columns)
+    column_list = ", ".join(insert_columns)
+    values = [writable[key] for key in insert_columns]
+    connection.execute(
+        f"INSERT INTO registered_accounts ({column_list}) VALUES ({placeholders})",
+        values,
+    )
+    return "inserted"
+
+
+def sync_registered_accounts_from_chatgpt_snapshots(snapshots):
+    db_path = str(REGISTERED_ACCOUNTS_DB_PATH or "").strip()
+    if not db_path:
+        return {"skipped": len(snapshots), "reason": "empty_db_path"}
+    if not os.path.exists(db_path):
+        return {"skipped": len(snapshots), "reason": f"db_not_found:{db_path}"}
+
+    counts = {"inserted": 0, "updated": 0, "skipped": 0}
+    with sqlite3.connect(db_path, timeout=10) as connection:
+        columns = ensure_registered_accounts_schema(connection)
+
+        for snapshot in snapshots:
+            row = build_chatgpt_registered_account_row(snapshot)
+            if not row:
+                counts["skipped"] += 1
+                continue
+            status = upsert_registered_account(connection, columns, row)
+            counts[status] += 1
+
+        connection.commit()
+    return counts
+
+
 def sync_chatgpt_session_snapshots(payload):
     normalized_payload = normalize_chatgpt_session_snapshot_payload(payload)
     os.makedirs(os.path.dirname(CHATGPT_SESSION_SNAPSHOT_PATH), exist_ok=True)
@@ -370,6 +529,17 @@ def sync_chatgpt_session_snapshots(payload):
         with open(CHATGPT_SESSION_SNAPSHOT_PATH, "w", encoding="utf-8") as handle:
             json.dump(normalized_payload, handle, ensure_ascii=False, indent=2)
             handle.write("\n")
+        try:
+            result = sync_registered_accounts_from_chatgpt_snapshots(normalized_payload["snapshots"])
+            log_info(
+                "registered_accounts sqlite sync "
+                f"inserted={result.get('inserted', 0)} "
+                f"updated={result.get('updated', 0)} "
+                f"skipped={result.get('skipped', 0)} "
+                f"reason={result.get('reason', '')}"
+            )
+        except Exception as exc:
+            log_info(f"registered_accounts sqlite sync failed detail={compact_text(exc)}")
     return CHATGPT_SESSION_SNAPSHOT_PATH
 
 

@@ -57,17 +57,37 @@ test('save ChatGPT session executor fetches session in ChatGPT tab and stores sn
       accountIdentifierType: 'email',
       accountIdentifier: 'saved@example.com',
       accountRunHistoryHelperBaseUrl: 'http://127.0.0.1:17373',
+      ipProxyCurrent: {
+        host: 'proxy.example.com',
+        port: 8000,
+        protocol: 'http',
+        username: 'proxy-user',
+        password: 'proxy-pass',
+      },
+      currentHotmailAccountId: 'hot-1',
+      hotmailAccounts: [{
+        id: 'hot-1',
+        clientId: 'client-id-1',
+        refreshToken: 'refresh-token-1',
+      }],
     }),
   });
 
   const snapshot = await executor.executeSaveChatGptSession({ visibleStep: 7 });
   assert.equal(snapshot.email, 'saved@example.com');
   assert.deepEqual(snapshot.session.user, { email: 'saved@example.com' });
+  assert.equal(snapshot.proxyAddress, 'http://proxy-user:proxy-pass@proxy.example.com:8000');
+  assert.equal(snapshot.hotmailClientId, 'client-id-1');
+  assert.equal(snapshot.hotmailRefreshToken, 'refresh-token-1');
   assert.match(snapshot.filePath, /chatgpt-session-snapshots\.json$/);
   assert.equal(stored.chatgptSessionSnapshots.length, 1);
   assert.equal(fetchCalls.length, 1);
   assert.equal(fetchCalls[0].url, 'http://127.0.0.1:17373/sync-chatgpt-session-snapshots');
-  assert.equal(JSON.parse(fetchCalls[0].options.body).snapshots.length, 1);
+  const syncPayload = JSON.parse(fetchCalls[0].options.body);
+  assert.equal(syncPayload.snapshots.length, 1);
+  assert.equal(syncPayload.snapshots[0].proxyAddress, 'http://proxy-user:proxy-pass@proxy.example.com:8000');
+  assert.equal(syncPayload.snapshots[0].hotmailClientId, 'client-id-1');
+  assert.equal(syncPayload.snapshots[0].hotmailRefreshToken, 'refresh-token-1');
   assert.equal(completed.length, 1);
   assert.equal(completed[0].step, 7);
   assert.match(completed[0].payload.chatgptSessionFilePath, /chatgpt-session-snapshots\.json$/);

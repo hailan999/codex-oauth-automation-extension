@@ -255,8 +255,8 @@ const DEFAULT_SUB2API_GROUP_NAMES = [
 ];
 const DEFAULT_SUB2API_REDIRECT_URI = 'http://localhost:1455/auth/callback';
 const DEFAULT_IP_PROXY_SERVICE = '711proxy';
-const IP_PROXY_SERVICE_VALUES = ['711proxy', 'lumiproxy', 'iproyal', 'omegaproxy'];
-const IP_PROXY_ENABLED_SERVICE_VALUES = ['711proxy'];
+const IP_PROXY_SERVICE_VALUES = ['711proxy', 'webshare', 'lumiproxy', 'iproyal', 'omegaproxy'];
+const IP_PROXY_ENABLED_SERVICE_VALUES = ['711proxy', 'webshare'];
 const DEFAULT_IP_PROXY_MODE = 'account';
 const IP_PROXY_MODE_VALUES = ['api', 'account'];
 const DEFAULT_IP_PROXY_PROTOCOL = 'http';
@@ -277,7 +277,7 @@ const IP_PROXY_FORCE_DIRECT_HOST_PATTERNS = [
   '*.luckyous.com',
 ];
 const IP_PROXY_FORCE_DIRECT_FALLBACK = 'PROXY 127.0.0.1:7897';
-const IP_PROXY_ACCOUNT_LIST_ENABLED = false;
+const IP_PROXY_ACCOUNT_LIST_ENABLED = true;
 const IP_PROXY_INIT_ENABLE_EXIT_PROBE = false;
 const IP_PROXY_INIT_SUPPRESS_AUTH_REBIND = true;
 const IP_PROXY_INIT_AUTO_APPLY = false;
@@ -3129,6 +3129,23 @@ async function resetState() {
       'sourceLastUrls',
       'reusablePhoneActivation',
       'phoneReusableActivationPool',
+      'ipProxyCurrentIndex',
+      'ipProxyCurrent',
+      'ipProxyApplied',
+      'ipProxyAppliedReason',
+      'ipProxyAppliedAt',
+      'ipProxyAppliedHost',
+      'ipProxyAppliedPort',
+      'ipProxyAppliedRegion',
+      'ipProxyAppliedHasAuth',
+      'ipProxyAppliedProvider',
+      'ipProxyAppliedError',
+      'ipProxyAppliedWarning',
+      'ipProxyAppliedExitIp',
+      'ipProxyAppliedExitRegion',
+      'ipProxyAppliedExitDetecting',
+      'ipProxyAppliedExitError',
+      'ipProxyAppliedExitSource',
       'luckmailApiKey',
       'luckmailBaseUrl',
       'luckmailEmailType',
@@ -3178,6 +3195,23 @@ async function resetState() {
     accounts: prev.accounts || [],
     tabRegistry: prev.tabRegistry || {},
     sourceLastUrls: prev.sourceLastUrls || {},
+    ipProxyCurrentIndex: Number(prev.ipProxyCurrentIndex) || 0,
+    ipProxyCurrent: prev.ipProxyCurrent || null,
+    ipProxyApplied: Boolean(prev.ipProxyApplied),
+    ipProxyAppliedReason: String(prev.ipProxyAppliedReason || 'disabled'),
+    ipProxyAppliedAt: Number(prev.ipProxyAppliedAt) || 0,
+    ipProxyAppliedHost: String(prev.ipProxyAppliedHost || ''),
+    ipProxyAppliedPort: Number(prev.ipProxyAppliedPort) || 0,
+    ipProxyAppliedRegion: String(prev.ipProxyAppliedRegion || ''),
+    ipProxyAppliedHasAuth: Boolean(prev.ipProxyAppliedHasAuth),
+    ipProxyAppliedProvider: String(prev.ipProxyAppliedProvider || DEFAULT_IP_PROXY_SERVICE),
+    ipProxyAppliedError: String(prev.ipProxyAppliedError || ''),
+    ipProxyAppliedWarning: String(prev.ipProxyAppliedWarning || ''),
+    ipProxyAppliedExitIp: String(prev.ipProxyAppliedExitIp || ''),
+    ipProxyAppliedExitRegion: String(prev.ipProxyAppliedExitRegion || ''),
+    ipProxyAppliedExitDetecting: Boolean(prev.ipProxyAppliedExitDetecting),
+    ipProxyAppliedExitError: String(prev.ipProxyAppliedExitError || ''),
+    ipProxyAppliedExitSource: String(prev.ipProxyAppliedExitSource || ''),
     luckmailApiKey: String(prev.luckmailApiKey || ''),
     luckmailBaseUrl: normalizeLuckmailBaseUrl(prev.luckmailBaseUrl),
     luckmailEmailType: normalizeLuckmailEmailType(prev.luckmailEmailType),
@@ -8676,6 +8710,24 @@ async function runCompletedStepSideEffects(step, payload, completionState, lastS
   }
 }
 
+async function finalizeRegistrationResourceUseBeforeFinalCompletion(step, completionState) {
+  const stepKey = getStepExecutionKeyForState(step, completionState || {});
+  if (stepKey !== 'save-chatgpt-session') {
+    return;
+  }
+
+  const latestState = await getState();
+  if (!latestState.currentHotmailAccountId || !isHotmailProvider(latestState)) {
+    return;
+  }
+
+  await patchHotmailAccount(latestState.currentHotmailAccountId, {
+    used: true,
+    lastUsedAt: Date.now(),
+  });
+  await addLog('仅注册+保存流程完成：Hotmail 账号已标记为已用。', 'ok');
+}
+
 async function reportCompletedStepSideEffectError(step, error) {
   const message = getErrorMessage(error);
   console.warn(LOG_PREFIX, `[completeStepFromBackground] step ${step} post-completion side effect failed:`, error);
@@ -8699,6 +8751,7 @@ async function completeStepFromBackground(step, payload = {}) {
   await addLog('已完成', 'ok', { step });
 
   if (step === lastStepId) {
+    await finalizeRegistrationResourceUseBeforeFinalCompletion(step, completionState);
     notifyStepComplete(step, payload);
     void runCompletedStepSideEffects(step, payload, completionState, lastStepId)
       .catch((error) => reportCompletedStepSideEffectError(step, error));

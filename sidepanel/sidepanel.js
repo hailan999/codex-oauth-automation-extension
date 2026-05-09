@@ -857,14 +857,14 @@ const NEX_SMS_FALLBACK_COUNTRY_ITEMS = Object.freeze([
   { id: 7, label: 'Malaysia (#7)', searchText: 'Malaysia 7 MY' },
 ]);
 const DEFAULT_IP_PROXY_SERVICE = '711proxy';
-const SUPPORTED_IP_PROXY_SERVICES = ['711proxy', 'lumiproxy', 'iproyal', 'omegaproxy'];
-const IP_PROXY_ENABLED_SERVICES = ['711proxy'];
+const SUPPORTED_IP_PROXY_SERVICES = ['711proxy', 'webshare', 'lumiproxy', 'iproyal', 'omegaproxy'];
+const IP_PROXY_ENABLED_SERVICES = ['711proxy', 'webshare'];
 const DEFAULT_IP_PROXY_MODE = 'account';
 const SUPPORTED_IP_PROXY_MODES = ['api', 'account'];
 const DEFAULT_IP_PROXY_PROTOCOL = 'http';
 const SUPPORTED_IP_PROXY_PROTOCOLS = ['http', 'https', 'socks4', 'socks5'];
 const IP_PROXY_API_MODE_ENABLED = false;
-const IP_PROXY_ACCOUNT_LIST_ENABLED = false;
+const IP_PROXY_ACCOUNT_LIST_ENABLED = true;
 
 function getManagedAliasUtils() {
   return window.MultiPageManagedAliasUtils || null;
@@ -1355,6 +1355,11 @@ const IP_PROXY_SERVICE_LOGIN_CONFIGS = {
     label: '711Proxy',
     url: 'https://www.711proxy.com/signup?code=AD2497',
     buttonLabel: '注册',
+  },
+  webshare: {
+    label: 'Webshare',
+    url: 'https://www.webshare.io/',
+    buttonLabel: '登录',
   },
 };
 
@@ -2738,7 +2743,7 @@ function collectSettingsPayload() {
     ? normalizeIpProxyService
     : ((value = '') => {
       const normalized = String(value || '').trim().toLowerCase();
-      return ['711proxy'].includes(normalized)
+      return ['711proxy', 'webshare'].includes(normalized)
         ? normalized
         : '711proxy';
     });
@@ -2856,7 +2861,7 @@ function collectSettingsPayload() {
       const raw = (rawValue && typeof rawValue === 'object' && !Array.isArray(rawValue))
         ? rawValue
         : {};
-      const services = ['711proxy'];
+      const services = ['711proxy', 'webshare'];
       const fallbackProfile = {
         mode: normalizeIpProxyModeSafe(fallbackState?.ipProxyMode || 'account'),
         apiUrl: String(fallbackState?.ipProxyApiUrl || '').trim(),
