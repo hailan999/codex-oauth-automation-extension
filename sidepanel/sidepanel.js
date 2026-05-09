@@ -9264,6 +9264,7 @@ function updateMailProviderUI() {
   const useIcloudProvider = isIcloudMailProvider();
   const useEmailGenerator = !useHotmail && !useLuckmail && !useCustomEmail && (!useGeneratedAlias || useGmail);
   const useCloudflareTempEmailProvider = selectMailProvider.value === 'cloudflare-temp-email';
+  const useCloudMailProvider = selectMailProvider.value === 'cloudmail';
   const aliasUiCopy = useGeneratedAlias
     ? getManagedAliasProviderUiCopy(selectMailProvider.value, mail2925Mode)
     : null;
@@ -9289,12 +9290,16 @@ function updateMailProviderUI() {
   const useCloudflare = selectedGenerator === 'cloudflare';
   const useIcloud = selectedGenerator === 'icloud';
   const useCloudflareTempEmailGenerator = selectedGenerator === 'cloudflare-temp-email';
+  const useCloudMailGenerator = selectedGenerator === 'cloudmail';
   const showCloudflareDomain = useEmailGenerator && useCloudflare;
   const showCloudflareTempEmailSettings = useCloudflareTempEmailProvider || (useEmailGenerator && useCloudflareTempEmailGenerator);
   const useCloudflareTempEmailDirectKv = Boolean(
     typeof inputTempEmailUseDirectKv !== 'undefined' && inputTempEmailUseDirectKv?.checked
   );
   const showCloudflareTempEmailReceiveMailbox = useCloudflareTempEmailProvider && !useCloudflareTempEmailGenerator && !useCloudflareTempEmailDirectKv;
+  const showCloudMailSettings = useCloudMailProvider || (useEmailGenerator && useCloudMailGenerator);
+  const showCloudMailReceiveMailbox = useCloudMailProvider && !useCloudMailGenerator;
+  const showCloudMailDomain = useEmailGenerator && useCloudMailGenerator;
   const selectedIcloudHost = typeof getSelectedIcloudHostPreference === 'function'
     ? getSelectedIcloudHostPreference()
     : (normalizeIcloudHostValue(icloudHostPreferenceValue || latestState?.icloudHostPreference || '')
@@ -9320,6 +9325,14 @@ function updateMailProviderUI() {
   if (cloudflareTempEmailSection) {
     cloudflareTempEmailSection.style.display = showCloudflareTempEmailSettings ? '' : 'none';
   }
+  if (typeof cloudMailSection !== 'undefined' && cloudMailSection) {
+    cloudMailSection.style.display = showCloudMailSettings ? '' : 'none';
+  }
+  if (typeof rowCloudMailBaseUrl !== 'undefined' && rowCloudMailBaseUrl) rowCloudMailBaseUrl.style.display = showCloudMailSettings ? '' : 'none';
+  if (typeof rowCloudMailAdminEmail !== 'undefined' && rowCloudMailAdminEmail) rowCloudMailAdminEmail.style.display = showCloudMailSettings ? '' : 'none';
+  if (typeof rowCloudMailAdminPassword !== 'undefined' && rowCloudMailAdminPassword) rowCloudMailAdminPassword.style.display = showCloudMailSettings ? '' : 'none';
+  if (typeof rowCloudMailReceiveMailbox !== 'undefined' && rowCloudMailReceiveMailbox) rowCloudMailReceiveMailbox.style.display = showCloudMailReceiveMailbox ? '' : 'none';
+  if (typeof rowCloudMailDomain !== 'undefined' && rowCloudMailDomain) rowCloudMailDomain.style.display = showCloudMailDomain ? '' : 'none';
   if (icloudSection) {
     const showIcloudSection = (useEmailGenerator && useIcloud) || useIcloudProvider;
     icloudSection.style.display = showIcloudSection ? '' : 'none';

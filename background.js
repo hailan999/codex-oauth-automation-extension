@@ -7507,6 +7507,85 @@ function isRestartCurrentAttemptError(error) {
   return /当前邮箱已存在，需要重新开始新一轮/.test(message);
 }
 
+function isSignupPhonePasswordMismatchFailure(error) {
+  const message = getErrorMessage(error);
+  return /SIGNUP_PHONE_PASSWORD_MISMATCH::/i.test(message);
+}
+
+function getSignupPhonePasswordMismatchRestartPayload(preservedState = {}) {
+  const preservedEmail = String(preservedState.email || '').trim();
+  const preservedPassword = String(preservedState.password || '').trim();
+  const accountIdentifierType = String(preservedState.accountIdentifierType || '').trim().toLowerCase();
+  const activeSignupPhoneNumber = String(
+    preservedState.signupPhoneNumber
+    || preservedState.signupPhoneActivation?.phoneNumber
+    || preservedState.signupPhoneCompletedActivation?.phoneNumber
+    || (accountIdentifierType === 'phone' ? preservedState.accountIdentifier : '')
+    || ''
+  ).trim();
+  const shouldClearSignupPhoneRuntime = Boolean(
+    activeSignupPhoneNumber
+    || preservedState.signupPhoneActivation
+    || preservedState.signupPhoneCompletedActivation
+    || preservedState.signupPhoneVerificationRequestedAt
+    || preservedState.signupPhoneVerificationPurpose
+    || accountIdentifierType === 'phone'
+  );
+  const restorePayload = {};
+  if (preservedEmail) restorePayload.email = preservedEmail;
+  if (preservedPassword) restorePayload.password = preservedPassword;
+  if (shouldClearSignupPhoneRuntime) {
+    restorePayload.signupPhoneNumber = '';
+    restorePayload.signupPhoneActivation = null;
+    restorePayload.signupPhoneCompletedActivation = null;
+    restorePayload.signupPhoneVerificationRequestedAt = null;
+    restorePayload.signupPhoneVerificationPurpose = '';
+    if (accountIdentifierType === 'phone') {
+      restorePayload.accountIdentifierType = null;
+      restorePayload.accountIdentifier = '';
+    }
+  }
+  return {
+    activeSignupPhoneNumber,
+    preservedEmail,
+    restorePayload,
+    shouldClearSignupPhoneRuntime,
+  };
+}
+
+async function restartSignupPhonePasswordMismatchAttemptFromStep(step, restartCount, error) {
+  const preservedState = await getState();
+  const {
+    activeSignupPhoneNumber,
+    preservedEmail,
+    restorePayload,
+    shouldClearSignupPhoneRuntime,
+  } = getSignupPhonePasswordMismatchRestartPayload(preservedState);
+  const emailSuffix = preservedEmail ? `当前邮箱：${preservedEmail}；` : '';
+  const phoneSuffix = activeSignupPhoneNumber ? `当前手机号：${activeSignupPhoneNumber}；` : '';
+  const errorMessage = getErrorMessage(error);
+  const reasonLabel = /PHONE_RESEND_BANNED_NUMBER::|无法向此(?:电话|手机)号码发送短信|无法发送短信到此(?:电话|手机)号码|unable\s+to\s+send\s+(?:an?\s+)?(?:sms|text(?:\s+message)?)\s+to\s+(?:this|that)\s+(?:phone\s+)?number/i
+    .test(errorMessage)
+    ? '当前注册手机号无法接收短信'
+    : (/与此(?:电话|手机)号码相关联的帐户已存在|account\s+associated\s+with\s+this\s+phone\s+number\s+already\s+exists/i
+      .test(errorMessage)
+      ? '注册手机号异常'
+      : '手机号/密码不匹配');
+  await addLog(
+    `步骤 ${step}：检测到${reasonLabel}，准备丢弃当前注册手机号并回到步骤 1 重新开始（第 ${restartCount} 次重开）。${phoneSuffix}${emailSuffix}原因：${errorMessage}`,
+    'warn'
+  );
+  await invalidateDownstreamAfterStepRestart(1, {
+    logLabel: `步骤 ${step} 检测到${reasonLabel}后准备回到步骤 1 重新获取手机号重试（第 ${restartCount} 次重开）`,
+  });
+  if (shouldClearSignupPhoneRuntime) {
+    await addLog(`步骤 ${step}：已清空本轮注册手机号与接码订单，下一次重开将重新获取号码。`, 'warn');
+  }
+  if (Object.keys(restorePayload).length) {
+    await setState(restorePayload);
+  }
+}
+
 function isSignupUserAlreadyExistsFailure(error) {
   if (typeof loggingStatus !== 'undefined' && loggingStatus?.isSignupUserAlreadyExistsFailure) {
     return loggingStatus.isSignupUserAlreadyExistsFailure(error);
@@ -10196,6 +10275,12 @@ async function runAutoSequenceFromStep(startStep, context = {}) {
         signupOnlyCurrentStepRetryCounts.delete(step);
         return;
       } catch (err) {
+        const isPhoneResendBanned = typeof phoneVerificationHelpers !== 'undefined'
+          && typeof phoneVerificationHelpers?.isPhoneResendBannedNumberError === 'function'
+          && phoneVerificationHelpers.isPhoneResendBannedNumberError(err);
+        if (isSignupPhonePasswordMismatchFailure(err) || isPhoneResendBanned) {
+          throw err;
+        }
         if (isStopError(err) || !(await shouldRetryCurrentSignupOnlyStep(step))) {
           throw err;
         }
@@ -10275,7 +10360,21 @@ async function runAutoSequenceFromStep(startStep, context = {}) {
     if (isStepDoneStatus(step3Status)) {
       await addLog(`自动运行：步骤 3 当前状态为 ${step3Status}，将直接继续后续流程。`, 'info');
     } else {
-      await executeStepAndWaitWithSignupOnlyRetry(3, AUTO_STEP_DELAYS[3]);
+      try {
+        await executeStepAndWaitWithSignupOnlyRetry(3, AUTO_STEP_DELAYS[3]);
+      } catch (err) {
+        if (isStopError(err)) {
+          throw err;
+        }
+        if (isSignupPhonePasswordMismatchFailure(err)) {
+          step4RestartCount += 1;
+          await restartSignupPhonePasswordMismatchAttemptFromStep(3, step4RestartCount, err);
+          currentStartStep = 1;
+          continueCurrentAttempt = true;
+          continue;
+        }
+        throw err;
+      }
     }
   } else {
     await addLog(`=== 目标 ${targetRun}/${totalRuns} 轮：继续执行剩余流程（第 ${attemptRuns} 次尝试）===`, 'info');
@@ -10342,22 +10441,29 @@ async function runAutoSequenceFromStep(startStep, context = {}) {
           throw err;
         }
         step4RestartCount += 1;
-        const preservedState = await getState();
-        const preservedEmail = String(preservedState.email || '').trim();
-        const preservedPassword = String(preservedState.password || '').trim();
-        const emailSuffix = preservedEmail ? `当前邮箱：${preservedEmail}；` : '';
-        await addLog(
-          `步骤 4：执行失败，准备沿用当前邮箱回到步骤 1 重新开始（第 ${step4RestartCount} 次重开）。${emailSuffix}原因：${getErrorMessage(err)}`,
-          'warn'
-        );
-        await invalidateDownstreamAfterStepRestart(1, {
-          logLabel: `步骤 4 报错后准备回到步骤 1 沿用当前邮箱重试（第 ${step4RestartCount} 次重开）`,
-        });
-        const restorePayload = {};
-        if (preservedEmail) restorePayload.email = preservedEmail;
-        if (preservedPassword) restorePayload.password = preservedPassword;
-        if (Object.keys(restorePayload).length) {
-          await setState(restorePayload);
+        const isPhoneResendBanned = typeof phoneVerificationHelpers !== 'undefined'
+          && typeof phoneVerificationHelpers?.isPhoneResendBannedNumberError === 'function'
+          && phoneVerificationHelpers.isPhoneResendBannedNumberError(err);
+        if (isSignupPhonePasswordMismatchFailure(err) || isPhoneResendBanned) {
+          await restartSignupPhonePasswordMismatchAttemptFromStep(4, step4RestartCount, err);
+        } else {
+          const preservedState = await getState();
+          const preservedEmail = String(preservedState.email || '').trim();
+          const preservedPassword = String(preservedState.password || '').trim();
+          const emailSuffix = preservedEmail ? `当前邮箱：${preservedEmail}；` : '';
+          await addLog(
+            `步骤 4：执行失败，准备沿用当前邮箱回到步骤 1 重新开始（第 ${step4RestartCount} 次重开）。${emailSuffix}原因：${getErrorMessage(err)}`,
+            'warn'
+          );
+          await invalidateDownstreamAfterStepRestart(1, {
+            logLabel: `步骤 4 报错后准备回到步骤 1 沿用当前邮箱重试（第 ${step4RestartCount} 次重开）`,
+          });
+          const restorePayload = {};
+          if (preservedEmail) restorePayload.email = preservedEmail;
+          if (preservedPassword) restorePayload.password = preservedPassword;
+          if (Object.keys(restorePayload).length) {
+            await setState(restorePayload);
+          }
         }
         currentStartStep = 1;
         continueCurrentAttempt = true;
@@ -10716,7 +10822,9 @@ const step5Executor = self.MultiPageBackgroundStep5?.createStep5Executor({
 });
 const step6Executor = self.MultiPageBackgroundStep6?.createStep6Executor({
   addLog,
+  chrome,
   completeStepFromBackground,
+  getErrorMessage,
   registrationSuccessWaitMs: STEP6_REGISTRATION_SUCCESS_WAIT_MS,
   sleepWithStop,
 });
@@ -10886,7 +10994,7 @@ const stepExecutorsByKey = {
   'fill-password': (state) => step3Executor.executeStep3(state),
   'fetch-signup-code': (state) => step4Executor.executeStep4(state),
   'fill-profile': (state) => step5Executor.executeStep5(state),
-  'wait-registration-success': () => step6Executor.executeStep6(),
+  'wait-registration-success': (state) => step6Executor.executeStep6(state),
   'save-chatgpt-session': (state) => saveChatGptSessionExecutor.executeSaveChatGptSession(state),
   'plus-checkout-create': (state) => plusCheckoutCreateExecutor.executePlusCheckoutCreate(state),
   'plus-checkout-billing': (state) => plusCheckoutBillingExecutor.executePlusCheckoutBilling(state),
@@ -11769,8 +11877,8 @@ async function rerunStep7ForStep8Recovery(options = {}) {
   }
 }
 
-async function executeStep6() {
-  return step6Executor.executeStep6();
+async function executeStep6(state = null) {
+  return step6Executor.executeStep6(state || await getState());
 }
 
 // ============================================================
