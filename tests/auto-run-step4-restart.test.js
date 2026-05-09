@@ -457,3 +457,94 @@ return {
   assert.equal(events.logs.some(({ message }) => /步骤 4 当前状态为 skipped/.test(message)), true);
   assert.equal(events.logs.some(({ message }) => /步骤 5 当前状态为 skipped/.test(message)), true);
 });
+
+test('signup-only auto-run retries the current non-final step before failing the round', async () => {
+  const api = new Function(`
+const AUTO_STEP_DELAYS = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0 };
+const LAST_STEP_ID = 7;
+const FINAL_OAUTH_CHAIN_START_STEP = 7;
+const SIGNUP_METHOD_PHONE = 'phone';
+const SIGNUP_ONLY_CURRENT_STEP_RETRY_LIMIT = 3;
+const chrome = {
+  tabs: {
+    update: async () => {},
+  },
+  runtime: {
+    sendMessage: async () => {},
+  },
+};
+
+let step2FailuresRemaining = 1;
+let currentState = {
+  flowStepLimit: 'signup',
+  email: 'retry@example.com',
+  stepStatuses: {
+    1: 'pending',
+    2: 'pending',
+    3: 'pending',
+    4: 'pending',
+    5: 'pending',
+    6: 'pending',
+    7: 'pending',
+  },
+};
+const events = {
+  steps: [],
+  invalidations: [],
+  logs: [],
+};
+
+async function addLog(message, level = 'info') {
+  events.logs.push({ message, level });
+}
+async function ensureAutoEmailReady() {
+  return currentState.email;
+}
+async function broadcastAutoRunStatus() {}
+async function ensureResolvedSignupMethodForRun() { return 'email'; }
+async function getState() { return currentState; }
+async function setState(updates = {}) { currentState = { ...currentState, ...updates }; }
+function isStepDoneStatus(status) { return ['completed', 'manual_completed', 'skipped'].includes(status); }
+async function getTabId() { return 1; }
+function getLastStepIdForState() { return 7; }
+function getStepDefinitionForState(step) { return { id: step, key: step === 7 ? 'save-chatgpt-session' : 'step-' + step }; }
+function isStopError() { return false; }
+function getErrorMessage(error) { return error?.message || String(error || ''); }
+function isGoPayCheckoutRestartRequiredFailure() { return false; }
+function isSignupUserAlreadyExistsFailure() { return false; }
+function isMail2925ThreadTerminatedError() { return false; }
+async function getPostStep6AutoRestartDecision() { return { shouldRestart: false, blockedByAddPhone: false }; }
+async function sleepWithStop() {}
+async function invalidateDownstreamAfterStepRestart(step, options = {}) {
+  events.invalidations.push({ step, logLabel: options.logLabel || '' });
+  const statuses = { ...currentState.stepStatuses };
+  for (const id of [1, 2, 3, 4, 5, 6, 7]) {
+    if (id > step) statuses[id] = 'pending';
+  }
+  currentState = { ...currentState, stepStatuses: statuses };
+}
+async function executeStepAndWait(step) {
+  events.steps.push(step);
+  if (step === 2 && step2FailuresRemaining > 0) {
+    step2FailuresRemaining -= 1;
+    currentState.stepStatuses = { ...currentState.stepStatuses, [step]: 'failed' };
+    throw new Error('步骤 2 临时失败');
+  }
+  currentState.stepStatuses = { ...currentState.stepStatuses, [step]: 'completed' };
+}
+
+${bundle}
+
+return {
+  async run() {
+    await runAutoSequenceFromStep(1, { targetRun: 1, totalRuns: 1, attemptRuns: 1 });
+    return events;
+  },
+};
+`)();
+
+  const events = await api.run();
+  assert.deepEqual(events.steps, [1, 2, 2, 3, 4, 5, 6, 7]);
+  assert.equal(events.invalidations[0]?.step, 1);
+  assert.ok(events.logs.some(({ message }) => /步骤 2 失败，正在自动重试当前步骤/.test(message)));
+});

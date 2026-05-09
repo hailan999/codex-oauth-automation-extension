@@ -20,6 +20,7 @@
       getFirstUnfinishedStep,
       getPendingAutoRunTimerPlan,
       getRunningSteps,
+      getStepDefinitionForState,
       getState,
       hasSavedProgress,
       isAddPhoneAuthFailure,
@@ -124,6 +125,25 @@
       return String(state?.mailProvider || '').trim().toLowerCase() === 'custom'
         && Array.isArray(state?.customMailProviderPool)
         && state.customMailProviderPool.length > 0;
+    }
+
+    function isSignupOnlySaveSessionFailure(state = {}) {
+      if (String(state?.flowStepLimit || '').trim().toLowerCase() !== 'signup') {
+        return false;
+      }
+
+      const statuses = state?.stepStatuses && typeof state.stepStatuses === 'object'
+        ? state.stepStatuses
+        : {};
+      return Object.entries(statuses).some(([step, status]) => {
+        if (String(status || '').trim().toLowerCase() !== 'failed') {
+          return false;
+        }
+        const stepDefinition = typeof getStepDefinitionForState === 'function'
+          ? getStepDefinitionForState(Number(step), state)
+          : null;
+        return String(stepDefinition?.key || '').trim() === 'save-chatgpt-session';
+      });
     }
 
     function isPhoneNumberSupplyExhaustedFailure(error) {
@@ -534,6 +554,7 @@
             }
 
             const reason = getErrorMessage(err);
+            const failureState = await getState();
             roundSummary.failureReasons.push(reason);
             const blockedByPhoneSmsRateLimit = typeof isPhoneSmsPlatformRateLimitFailure === 'function'
               && isPhoneSmsPlatformRateLimitFailure(err);
@@ -550,10 +571,12 @@
               && isSignupUserAlreadyExistsFailure(err);
             const blockedByStep4Route405 = typeof isStep4Route405RecoveryLimitFailure === 'function'
               && isStep4Route405RecoveryLimitFailure(err);
+            const blockedBySignupOnlySaveSession = isSignupOnlySaveSessionFailure(failureState);
             const canRetry = !blockedByAddPhone
               && !blockedByPhoneNoSupply
               && !blockedByPlusNonFreeTrial
               && !blockedBySignupUserAlreadyExists
+              && !blockedBySignupOnlySaveSession
               && autoRunSkipFailures
               && attemptRun < maxAttemptsForRound;
 
@@ -730,6 +753,26 @@
                 targetRun < totalRuns
                   ? `第 ${targetRun}/${totalRuns} 轮因步骤 4 连续 405 提前结束，自动流程将继续下一轮。`
                   : `第 ${targetRun}/${totalRuns} 轮因步骤 4 连续 405 提前结束，已无后续轮次，本次自动运行结束。`,
+                'warn'
+              );
+              forceFreshTabsNextRun = true;
+              break;
+            }
+
+            if (blockedBySignupOnlySaveSession) {
+              roundSummary.status = 'failed';
+              roundSummary.finalFailureReason = reason;
+              await setState({
+                autoRunRoundSummaries: serializeAutoRunRoundSummaries(totalRuns, roundSummaries),
+              });
+              await appendRoundRecordIfNeeded('failed', reason);
+              cancelPendingCommands('仅注册+保存流程保存 ChatGPT Session 失败，当前轮已终止。');
+              await broadcastStopToContentScripts();
+              await addLog(`第 ${targetRun}/${totalRuns} 轮保存 ChatGPT Session 失败，本轮记为失败并跳过到下一轮。原因：${reason}`, 'warn');
+              await addLog(
+                targetRun < totalRuns
+                  ? `第 ${targetRun}/${totalRuns} 轮因保存 ChatGPT Session 失败提前结束，自动流程将继续下一轮。`
+                  : `第 ${targetRun}/${totalRuns} 轮因保存 ChatGPT Session 失败提前结束，已无后续轮次，本次自动运行结束。`,
                 'warn'
               );
               forceFreshTabsNextRun = true;

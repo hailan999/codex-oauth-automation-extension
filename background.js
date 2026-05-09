@@ -8606,6 +8606,7 @@ const STEP_COMPLETION_SIGNAL_TIMEOUTS_BY_STEP_KEY = new Map([
 const AUTO_RUN_PRE_EXECUTION_DELAYS_BY_STEP_KEY = new Map([
   ['plus-checkout-create', 20000],
 ]);
+const SIGNUP_ONLY_CURRENT_STEP_RETRY_LIMIT = 3;
 
 function waitForStepComplete(step, timeoutMs = 120000) {
   throwIfStopped();
@@ -9756,6 +9757,7 @@ const autoRunController = self.MultiPageBackgroundAutoRunController?.createAutoR
   getFirstUnfinishedStep,
   getPendingAutoRunTimerPlan,
   getRunningSteps,
+  getStepDefinitionForState,
   getState,
   getStopRequested: () => stopRequested,
   hasSavedProgress,
@@ -10141,7 +10143,55 @@ async function runAutoSequenceFromStep(startStep, context = {}) {
   let step4RestartCount = 0;
   let currentStartStep = startStep;
   let continueCurrentAttempt = continued;
+  const signupOnlyCurrentStepRetryCounts = new Map();
   const resolvedSignupMethod = await ensureResolvedSignupMethodForRun();
+
+  async function shouldRetryCurrentSignupOnlyStep(step) {
+    const latestState = await getState();
+    if (String(latestState?.flowStepLimit || '').trim().toLowerCase() !== 'signup') {
+      return false;
+    }
+    const lastStepId = typeof getLastStepIdForState === 'function'
+      ? getLastStepIdForState(latestState)
+      : (typeof LAST_STEP_ID === 'number' ? LAST_STEP_ID : 10);
+    return Number(step) < Number(lastStepId);
+  }
+
+  async function executeStepAndWaitWithSignupOnlyRetry(step, delayAfter = 2000) {
+    while (true) {
+      try {
+        await executeStepAndWait(step, delayAfter);
+        signupOnlyCurrentStepRetryCounts.delete(step);
+        return;
+      } catch (err) {
+        if (isStopError(err) || !(await shouldRetryCurrentSignupOnlyStep(step))) {
+          throw err;
+        }
+
+        const retryCount = (signupOnlyCurrentStepRetryCounts.get(step) || 0) + 1;
+        const retryLimit = typeof SIGNUP_ONLY_CURRENT_STEP_RETRY_LIMIT === 'number'
+          ? SIGNUP_ONLY_CURRENT_STEP_RETRY_LIMIT
+          : 3;
+        if (retryCount > retryLimit) {
+          await addLog(
+            `仅注册+保存：步骤 ${step} 已连续重试 ${retryLimit} 次仍失败，交给自动运行失败处理。原因：${getErrorMessage(err)}`,
+            'error'
+          );
+          throw err;
+        }
+
+        signupOnlyCurrentStepRetryCounts.set(step, retryCount);
+        await addLog(
+          `仅注册+保存：步骤 ${step} 失败，正在自动重试当前步骤（${retryCount}/${retryLimit}）。原因：${getErrorMessage(err)}`,
+          'warn'
+        );
+        await invalidateDownstreamAfterStepRestart(Math.max(0, Number(step) - 1), {
+          logLabel: `仅注册+保存步骤 ${step} 失败后准备重试当前步骤（第 ${retryCount}/${retryLimit} 次）`,
+        });
+        await sleepWithStop(1000);
+      }
+    }
+  }
 
   while (true) {
 
@@ -10152,7 +10202,7 @@ async function runAutoSequenceFromStep(startStep, context = {}) {
   }
 
   if (currentStartStep <= 1) {
-    await executeStepAndWait(1, AUTO_STEP_DELAYS[1]);
+    await executeStepAndWaitWithSignupOnlyRetry(1, AUTO_STEP_DELAYS[1]);
   }
 
   if (currentStartStep <= 2) {
@@ -10161,7 +10211,7 @@ async function runAutoSequenceFromStep(startStep, context = {}) {
     } else {
       await ensureAutoEmailReady(targetRun, totalRuns, attemptRuns);
     }
-    await executeStepAndWait(2, AUTO_STEP_DELAYS[2]);
+    await executeStepAndWaitWithSignupOnlyRetry(2, AUTO_STEP_DELAYS[2]);
   }
 
   if (currentStartStep <= 3) {
@@ -10176,7 +10226,7 @@ async function runAutoSequenceFromStep(startStep, context = {}) {
     if (isStepDoneStatus(step3Status)) {
       await addLog(`自动运行：步骤 3 当前状态为 ${step3Status}，将直接继续后续流程。`, 'info');
     } else {
-      await executeStepAndWait(3, AUTO_STEP_DELAYS[3]);
+      await executeStepAndWaitWithSignupOnlyRetry(3, AUTO_STEP_DELAYS[3]);
     }
   } else {
     await addLog(`=== 目标 ${targetRun}/${totalRuns} 轮：继续执行剩余流程（第 ${attemptRuns} 次尝试）===`, 'info');
@@ -10204,7 +10254,7 @@ async function runAutoSequenceFromStep(startStep, context = {}) {
       continue;
     }
     try {
-      await executeStepAndWait(step, AUTO_STEP_DELAYS[step]);
+      await executeStepAndWaitWithSignupOnlyRetry(step, AUTO_STEP_DELAYS[step]);
       step += 1;
     } catch (err) {
       if (isStopError(err)) {
