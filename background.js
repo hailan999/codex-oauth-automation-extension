@@ -3286,6 +3286,12 @@ async function resetState() {
       'reusablePhoneActivation',
       'freeReusablePhoneActivation',
       'phoneReusableActivationPool',
+      'ipProxyApiPool',
+      'ipProxyApiCurrentIndex',
+      'ipProxyApiCurrent',
+      'ipProxyAccountPool',
+      'ipProxyAccountCurrentIndex',
+      'ipProxyAccountCurrent',
       'ipProxyCurrentIndex',
       'ipProxyCurrent',
       'ipProxyApplied',
@@ -3341,6 +3347,9 @@ async function resetState() {
       .map((entry) => normalizePhonePreferredActivation(entry))
       .filter(Boolean)
     : [];
+  const resetIpProxyProvider = normalizeIpProxyProviderValue(
+    persistedSettings.ipProxyService || prev.ipProxyAppliedProvider || DEFAULT_IP_PROXY_SERVICE
+  );
   const freeReusablePhoneActivation = (
     prev.freeReusablePhoneActivation
     && typeof prev.freeReusablePhoneActivation === 'object'
@@ -3365,6 +3374,12 @@ async function resetState() {
     accounts: prev.accounts || [],
     tabRegistry: prev.tabRegistry || {},
     sourceLastUrls: prev.sourceLastUrls || {},
+    ipProxyApiPool: normalizeProxyPoolEntries(prev.ipProxyApiPool || [], resetIpProxyProvider),
+    ipProxyApiCurrentIndex: normalizeIpProxyCurrentIndex(prev.ipProxyApiCurrentIndex, 0),
+    ipProxyApiCurrent: normalizeProxyPoolEntries(prev.ipProxyApiCurrent ? [prev.ipProxyApiCurrent] : [], resetIpProxyProvider)[0] || null,
+    ipProxyAccountPool: normalizeProxyPoolEntries(prev.ipProxyAccountPool || [], resetIpProxyProvider),
+    ipProxyAccountCurrentIndex: normalizeIpProxyCurrentIndex(prev.ipProxyAccountCurrentIndex, 0),
+    ipProxyAccountCurrent: normalizeProxyPoolEntries(prev.ipProxyAccountCurrent ? [prev.ipProxyAccountCurrent] : [], resetIpProxyProvider)[0] || null,
     ipProxyCurrentIndex: Number(prev.ipProxyCurrentIndex) || 0,
     ipProxyCurrent: prev.ipProxyCurrent || null,
     ipProxyApplied: Boolean(prev.ipProxyApplied),
@@ -10032,6 +10047,58 @@ function resolveIpProxyCandidateCountForAutoSwitch(state = {}, mode = 'account',
   return 0;
 }
 
+function buildIpProxyRoundStartLogMessage(state = {}, payload = {}) {
+  const targetRun = Math.max(1, Number(payload?.targetRun) || Number(state?.autoRunCurrentRun) || 1);
+  const totalRuns = Math.max(targetRun, Number(payload?.totalRuns) || Number(state?.autoRunTotalRuns) || targetRun);
+  const attemptRun = Math.max(1, Number(payload?.attemptRun) || Number(state?.autoRunAttemptRun) || 1);
+  const prefix = `第 ${targetRun}/${totalRuns} 轮第 ${attemptRun} 次尝试开始`;
+  if (!state?.ipProxyEnabled) {
+    return `${prefix}：IP 代理未启用。`;
+  }
+
+  const mode = typeof normalizeIpProxyMode === 'function'
+    ? normalizeIpProxyMode(state?.ipProxyMode)
+    : String(state?.ipProxyMode || 'account').trim().toLowerCase();
+  const provider = typeof normalizeIpProxyProviderValue === 'function'
+    ? normalizeIpProxyProviderValue(state?.ipProxyService)
+    : String(state?.ipProxyService || DEFAULT_IP_PROXY_SERVICE).trim().toLowerCase();
+  const runtime = typeof getIpProxyRuntimeSnapshot === 'function'
+    ? getIpProxyRuntimeSnapshot(state, mode, provider)
+    : null;
+  const pool = mode === 'account' && typeof getAccountModeProxyPoolFromState === 'function'
+    ? getAccountModeProxyPoolFromState(state, provider)
+    : (Array.isArray(runtime?.pool) ? runtime.pool : []);
+  const poolCount = Array.isArray(pool) ? pool.length : 0;
+  const rawIndex = Number(runtime?.index) || 0;
+  const index = poolCount > 0 ? rawIndex % poolCount : rawIndex;
+  const entry = poolCount > 0
+    ? pool[index]
+    : (typeof getIpProxyCurrentEntryFromState === 'function' ? getIpProxyCurrentEntryFromState(state) : null);
+  if (!entry?.host || !entry?.port) {
+    return `${prefix}：IP 代理已启用，但当前没有可用代理节点。`;
+  }
+
+  const region = String(entry.region || state.ipProxyAppliedRegion || '').trim();
+  const username = String(entry.username || '').trim();
+  const nodeText = `${entry.host}:${entry.port}${region ? ` [${region}]` : ''}`;
+  const positionText = poolCount > 0 ? `（${index + 1}/${poolCount}）` : '';
+  const accountText = username ? `，账号 ${username}` : '';
+  const exitIp = String(state.ipProxyAppliedExitIp || '').trim();
+  const exitRegion = String(state.ipProxyAppliedExitRegion || '').trim();
+  const exitText = exitIp ? `，上次出口 ${exitIp}${exitRegion ? ` [${exitRegion}]` : ''}` : '';
+  return `${prefix}：使用代理节点 ${nodeText}${positionText}${accountText}${exitText}。`;
+}
+
+async function logIpProxyUsageAtAutoRunRoundStart(payload = {}) {
+  if (typeof addLog !== 'function') {
+    return null;
+  }
+  const state = await getState();
+  const message = buildIpProxyRoundStartLogMessage(state, payload);
+  await addLog(message, state?.ipProxyEnabled ? 'info' : 'warn');
+  return message;
+}
+
 function resolveIpProxyAutoSyncIntervalMinutes(value, fallback = IP_PROXY_AUTO_SYNC_DEFAULT_INTERVAL_MINUTES) {
   return normalizeIpProxyAutoSyncIntervalMinutes(value, fallback);
 }
@@ -10335,6 +10402,7 @@ const autoRunController = self.MultiPageBackgroundAutoRunController?.createAutoR
   isStopError,
   launchAutoRunTimerPlan,
   normalizeAutoRunFallbackThreadIntervalMinutes,
+  onAutoRunRoundStart: (payload = {}) => logIpProxyUsageAtAutoRunRoundStart(payload),
   onAutoRunRoundSuccess: (payload = {}) => maybeSwitchIpProxyAfterAutoRunRoundSuccess(payload),
   persistAutoRunTimerPlan,
   resetState,

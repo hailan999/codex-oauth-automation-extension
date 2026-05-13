@@ -548,6 +548,7 @@ const fiveSimCountrySearchTextByCode = new Map();
 let nexSmsCountrySelectionOrder = [];
 let nexSmsCountryMenuSearchKeyword = '';
 const nexSmsCountrySearchTextById = new Map();
+let nextPrimaryCountries = [];
 let stepDefinitions = getStepDefinitionsForMode(false, {
   plusPaymentMethod: currentPlusPaymentMethod,
   signupMethod: currentSignupMethod,
@@ -5634,7 +5635,7 @@ async function loadHeroSmsCountries() {
       applyOptions(optionItems, selectHeroSmsCountry);
       applyOptions(optionItems, selectHeroSmsCountryFallback);
     } catch (error) {
-      console.warn('Failed to load 5sim countries:', error);
+      console.info(`5sim country list unavailable: ${normalizeHeroSmsFetchErrorMessage(error)}. Using built-in list.`);
       const fallbackItems = FIVE_SIM_SUPPORTED_COUNTRY_ITEMS.map((item) => ({
         id: item.id,
         label: formatFiveSimCountryDisplayLabel(item.id, item.eng),
@@ -5686,7 +5687,7 @@ async function loadHeroSmsCountries() {
     applyOptions(optionItems, selectHeroSmsCountry);
     applyOptions(optionItems, selectHeroSmsCountryFallback);
   } catch (error) {
-    console.warn('Failed to load HeroSMS countries:', error);
+    console.info(`HeroSMS country list unavailable: ${normalizeHeroSmsFetchErrorMessage(error)}. Using built-in list.`);
     const fallbackItems = HERO_SMS_FALLBACK_COUNTRY_ITEMS
       .map((item) => {
         const id = normalizeHeroSmsCountryId(item.id);
@@ -6055,7 +6056,7 @@ async function loadFiveSimCountries() {
     const items = parseFiveSimCountriesPayload(payload);
     applyOptions(items.length ? items : fallbackItems);
   } catch (error) {
-    console.warn('Failed to load 5sim countries:', error);
+    console.info(`5sim country list unavailable: ${normalizeHeroSmsFetchErrorMessage(error)}. Using built-in list.`);
     applyOptions(fallbackItems);
   }
 
@@ -13918,8 +13919,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
               ? message.payload.heroSmsCountryFallback
               : latestState?.heroSmsCountryFallback
           );
+        const nextPrimaryCountries = activeProvider === PHONE_SMS_PROVIDER_FIVE_SIM
+          ? (nextPrimary.id ? [nextPrimary] : [])
+          : (Number(nextPrimary.id) > 0 ? [nextPrimary] : []);
         applyHeroSmsFallbackSelection(
-          [nextPrimary, ...nextFallback],
+          [...nextPrimaryCountries, ...nextFallback],
           { includePrimary: true }
         );
         updateHeroSmsPlatformDisplay();

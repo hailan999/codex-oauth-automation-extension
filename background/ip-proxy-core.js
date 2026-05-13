@@ -3420,10 +3420,11 @@ async function refreshIpProxyPool(options = {}) {
       ...state,
       ...updates,
     };
-    const shouldRebindSingleAccountEntry = mode === 'account' && pool.length <= 1;
+    const shouldForceAccountAuthRebind = mode === 'account'
+      && Boolean(String(summary.current?.username || '').trim());
     proxyRouting = await applyIpProxySettingsFromState(
       applyState,
-      shouldRebindSingleAccountEntry
+      shouldForceAccountAuthRebind
         ? {
           forceAuthRebind: true,
           suppressAuthRebind: false,
@@ -3499,10 +3500,11 @@ async function switchIpProxy(direction = 'next', options = {}) {
       ...state,
       ...updates,
     };
-    const shouldRebindSingleAccountEntry = mode === 'account' && pool.length <= 1;
+    const shouldForceAccountAuthRebind = mode === 'account'
+      && Boolean(String(current?.username || '').trim());
     proxyRouting = await applyIpProxySettingsFromState(
       applyState,
-      shouldRebindSingleAccountEntry
+      shouldForceAccountAuthRebind
         ? {
           forceAuthRebind: true,
           suppressAuthRebind: false,

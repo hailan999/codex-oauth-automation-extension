@@ -33,6 +33,8 @@
       isStopError,
       launchAutoRunTimerPlan,
       normalizeAutoRunFallbackThreadIntervalMinutes,
+      onAutoRunRoundStart,
+      onAutoRunRoundSuccess,
       persistAutoRunTimerPlan,
       resetState,
       runAutoSequenceFromStep,
@@ -453,6 +455,12 @@
               emailGenerator: prevState.emailGenerator,
               ipProxyCurrentIndex: prevState.ipProxyCurrentIndex,
               ipProxyCurrent: prevState.ipProxyCurrent,
+              ipProxyApiPool: prevState.ipProxyApiPool,
+              ipProxyApiCurrentIndex: prevState.ipProxyApiCurrentIndex,
+              ipProxyApiCurrent: prevState.ipProxyApiCurrent,
+              ipProxyAccountPool: prevState.ipProxyAccountPool,
+              ipProxyAccountCurrentIndex: prevState.ipProxyAccountCurrentIndex,
+              ipProxyAccountCurrent: prevState.ipProxyAccountCurrent,
               ipProxyApplied: prevState.ipProxyApplied,
               ipProxyAppliedReason: prevState.ipProxyAppliedReason,
               ipProxyAppliedAt: prevState.ipProxyAppliedAt,
@@ -496,11 +504,6 @@
             });
           }
 
-          if (forceFreshTabsNextRun) {
-            await addLog(`上一轮尝试已放弃，当前开始第 ${targetRun}/${totalRuns} 轮第 ${attemptRun} 次尝试。`, 'warn');
-            forceFreshTabsNextRun = false;
-          }
-
           const appendRoundRecordIfNeeded = async (status, reason = '') => {
             if (roundRecordAppended) {
               return;
@@ -515,6 +518,20 @@
               roundRecordAppended = true;
             }
           };
+
+          if (typeof onAutoRunRoundStart === 'function') {
+            await onAutoRunRoundStart({
+              targetRun,
+              totalRuns,
+              attemptRun,
+              continued: useExistingProgress,
+            });
+          }
+
+          if (forceFreshTabsNextRun) {
+            await addLog(`上一轮尝试已放弃，当前开始第 ${targetRun}/${totalRuns} 轮第 ${attemptRun} 次尝试。`, 'warn');
+            forceFreshTabsNextRun = false;
+          }
 
           try {
             throwIfAutoRunSessionStopped(sessionId);
@@ -548,6 +565,14 @@
               autoRunRoundSummaries: serializeAutoRunRoundSummaries(totalRuns, roundSummaries),
             });
             await addLog(`=== 第 ${targetRun}/${totalRuns} 轮完成（第 ${attemptRun} 次尝试成功）===`, 'ok');
+            if (typeof onAutoRunRoundSuccess === 'function') {
+              await onAutoRunRoundSuccess({
+                targetRun,
+                totalRuns,
+                attemptRun,
+                successfulRuns,
+              });
+            }
             break;
           } catch (err) {
             if (isStopError(err)) {
