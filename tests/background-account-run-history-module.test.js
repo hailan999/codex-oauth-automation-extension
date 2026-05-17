@@ -91,6 +91,10 @@ test('account run history helper upgrades old records, keeps stopped items and s
       attemptRun: 3,
     },
     plusModeEnabled: false,
+    plusFreeOfferAvailable: false,
+    plusFreeOfferCheckedAt: '',
+    plusFreeOfferLabel: '',
+    plusFreeOfferUrl: '',
     contributionMode: false,
   });
 
@@ -177,6 +181,10 @@ test('account run history helper accepts phone-only records without forcing emai
     source: 'manual',
     autoRunContext: null,
     plusModeEnabled: false,
+    plusFreeOfferAvailable: false,
+    plusFreeOfferCheckedAt: '',
+    plusFreeOfferLabel: '',
+    plusFreeOfferUrl: '',
     contributionMode: false,
   });
 

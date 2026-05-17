@@ -30,6 +30,7 @@ if (document.documentElement.getAttribute(SIGNUP_PAGE_LISTENER_SENTINEL) !== '1'
       || message.type === 'ENSURE_SIGNUP_ENTRY_READY'
       || message.type === 'ENSURE_SIGNUP_PHONE_ENTRY_READY'
       || message.type === 'ENSURE_SIGNUP_PASSWORD_PAGE_READY'
+      || message.type === 'CHECK_PLUS_FREE_OFFER'
     ) {
       resetStopState();
       handleCommand(message).then((result) => {
@@ -108,6 +109,8 @@ async function handleCommand(message) {
       return await ensureSignupPhoneEntryReady();
     case 'ENSURE_SIGNUP_PASSWORD_PAGE_READY':
       return await ensureSignupPasswordPageReady();
+    case 'CHECK_PLUS_FREE_OFFER':
+      return await waitForPlusFreeOfferState(message.payload);
     case 'STEP8_FIND_AND_CLICK':
       return await step8_findAndClick(message.payload);
     case 'STEP8_GET_STATE':
@@ -198,6 +201,54 @@ function isActionEnabled(el) {
   return Boolean(el)
     && !el.disabled
     && el.getAttribute('aria-disabled') !== 'true';
+}
+
+const PLUS_FREE_OFFER_PATTERN = /(?:^|\b)(?:free\s+offer|claim\s+offer|free\s+trial|try\s+plus\s+free)(?:\b|$)|免费(?:优惠|试用)|领取(?:优惠|试用|权益)/i;
+
+function getPlusOfferSearchText(el) {
+  const datasetValues = el?.dataset ? Object.values(el.dataset) : [];
+  return [
+    getActionText(el),
+    el?.innerText,
+    el?.getAttribute?.('aria-label'),
+    el?.getAttribute?.('title'),
+    el?.getAttribute?.('data-testid'),
+    el?.getAttribute?.('href'),
+    typeof el?.className === 'string' ? el.className : el?.getAttribute?.('class'),
+    ...datasetValues,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function inspectPlusFreeOfferState() {
+  const candidates = Array.from(document.querySelectorAll(
+    'button, a, [role="button"], [role="link"], [aria-label], [title], [data-testid]'
+  )).filter(isVisibleElement);
+  const match = candidates.find((el) => PLUS_FREE_OFFER_PATTERN.test(getPlusOfferSearchText(el)));
+  const label = match ? getPlusOfferSearchText(match).slice(0, 120) : '';
+  return {
+    plusFreeOfferAvailable: Boolean(match),
+    plusFreeOfferLabel: label,
+    plusFreeOfferCheckedAt: new Date().toISOString(),
+    url: location.href,
+  };
+}
+
+async function waitForPlusFreeOfferState(options = {}) {
+  const timeoutMs = Math.max(0, Math.floor(Number(options.timeoutMs) || 10000));
+  const intervalMs = Math.max(100, Math.floor(Number(options.intervalMs) || 500));
+  const startedAt = Date.now();
+  let latest = inspectPlusFreeOfferState();
+
+  while (!latest.plusFreeOfferAvailable && Date.now() - startedAt < timeoutMs) {
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    latest = inspectPlusFreeOfferState();
+  }
+
+  return latest;
 }
 
 function findOneTimeCodeLoginTrigger() {

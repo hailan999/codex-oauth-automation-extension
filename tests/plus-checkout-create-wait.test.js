@@ -66,6 +66,10 @@ test('Plus checkout create does not wait 20 seconds after opening checkout page'
   assert.deepStrictEqual(sleepEvents.map((event) => event.ms), [1000, 1000]);
   assert.deepStrictEqual(
     events.find((event) => event.type === 'tab-message')?.message?.payload,
+    {}
+  );
+  assert.deepStrictEqual(
+    events.find((event) => event.type === 'tab-message' && event.message?.type === 'CREATE_PLUS_CHECKOUT')?.message?.payload,
     { paymentMethod: 'paypal' }
   );
 
@@ -104,7 +108,10 @@ test('GoPay plus checkout create forwards gopay payment method to the checkout c
 
   await executor.executePlusCheckoutCreate({ plusPaymentMethod: 'gopay' });
 
-  assert.deepStrictEqual(events[0]?.payload, { paymentMethod: 'gopay' });
+  assert.deepStrictEqual(
+    events.find((message) => message.type === 'CREATE_PLUS_CHECKOUT')?.payload,
+    { paymentMethod: 'gopay' }
+  );
 });
 
 test('GPC checkout injects Plus script before reading ChatGPT session token and sends X-API-Key', async () => {
@@ -188,13 +195,14 @@ test('GPC checkout injects Plus script before reading ChatGPT session token and 
   assert.equal(Object.prototype.hasOwnProperty.call(helperPayload, 'checkout_ui_mode'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(helperPayload, 'gopay_link'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(helperPayload, 'plan_name'), false);
-  assert.equal(events.find((event) => event.type === 'set-state')?.payload?.plusCheckoutSource, 'gpc-helper');
-  assert.equal(events.find((event) => event.type === 'set-state')?.payload?.gopayHelperTaskId, 'task_123');
-  assert.equal(events.find((event) => event.type === 'set-state')?.payload?.gopayHelperTaskStatus, 'active');
-  assert.equal(events.find((event) => event.type === 'set-state')?.payload?.gopayHelperStatusText, '处理中');
-  assert.equal(events.find((event) => event.type === 'set-state')?.payload?.gopayHelperRemoteStage, 'checkout_start');
-  assert.equal(events.find((event) => event.type === 'set-state')?.payload?.gopayHelperReferenceId, '');
-  assert.ok(events.find((event) => event.type === 'set-state')?.payload?.gopayHelperOrderCreatedAt > 0);
+  const gpcStateUpdate = events.find((event) => event.type === 'set-state' && event.payload?.plusCheckoutSource === 'gpc-helper');
+  assert.equal(gpcStateUpdate?.payload?.plusCheckoutSource, 'gpc-helper');
+  assert.equal(gpcStateUpdate?.payload?.gopayHelperTaskId, 'task_123');
+  assert.equal(gpcStateUpdate?.payload?.gopayHelperTaskStatus, 'active');
+  assert.equal(gpcStateUpdate?.payload?.gopayHelperStatusText, '处理中');
+  assert.equal(gpcStateUpdate?.payload?.gopayHelperRemoteStage, 'checkout_start');
+  assert.equal(gpcStateUpdate?.payload?.gopayHelperReferenceId, '');
+  assert.ok(gpcStateUpdate?.payload?.gopayHelperOrderCreatedAt > 0);
   assert.equal(events.find((event) => event.type === 'complete')?.step, 6);
   assert.equal(events.find((event) => event.type === 'complete')?.payload?.plusCheckoutSource, 'gpc-helper');
 });

@@ -238,6 +238,12 @@
 
     function getRecordSummaryText(record = {}) {
       if (record.finalStatus === 'success') {
+        if (record.plusFreeOfferAvailable) {
+          return '流程完成 · Plus 试用可领';
+        }
+        if (record.plusFreeOfferCheckedAt) {
+          return '流程完成 · 未发现 Plus 试用';
+        }
         return '流程完成';
       }
 

@@ -254,6 +254,22 @@ function getCheckoutAmountSummary() {
   };
 }
 
+const PLUS_FREE_OFFER_PATTERN = /(?:^|\b)(?:free\s+offer|claim\s+offer|free\s+trial|try\s+plus\s+free)(?:\b|$)|免费(?:优惠|试用)|领取(?:优惠|试用|权益)/i;
+
+function getPlusFreeOfferSummary() {
+  const candidates = getVisibleControls(
+    'button, a, [role="button"], [role="link"], [aria-label], [title], [data-testid]'
+  );
+  const match = candidates.find((el) => PLUS_FREE_OFFER_PATTERN.test(getCombinedSearchText(el)));
+  const label = match ? getCombinedSearchText(match).slice(0, 120) : '';
+  return {
+    available: Boolean(match),
+    label,
+    checkedAt: new Date().toISOString(),
+    url: location.href,
+  };
+}
+
 function getActionText(el) {
   return normalizeText([
     el?.textContent,
@@ -1526,6 +1542,7 @@ async function inspectPlusCheckoutState(options = {}) {
     billingFieldsVisible: hasBillingAddressFields(),
     hasSubscribeButton: Boolean(findSubscribeButton()),
     checkoutAmountSummary: getCheckoutAmountSummary(),
+    plusFreeOfferSummary: getPlusFreeOfferSummary(),
     addressFieldValues: {
       address1: structuredAddress.address1?.value || '',
       city: structuredAddress.city?.value || '',

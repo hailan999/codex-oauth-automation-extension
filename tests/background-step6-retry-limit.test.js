@@ -89,6 +89,65 @@ test('step 6 only clears cookies when cleanup switch is enabled', async () => {
   assert.ok(events.browsingDataCalls[0].origins.includes('https://chatgpt.com'));
 });
 
+test('step 6 records Plus free offer eligibility after registration', async () => {
+  const source = fs.readFileSync('background/steps/wait-registration-success.js', 'utf8');
+  const globalScope = {};
+  const api = new Function('self', `${source}; return self.MultiPageBackgroundStep6;`)(globalScope);
+
+  const events = {
+    ensured: [],
+    messages: [],
+    stateUpdates: [],
+    logs: [],
+    completedSteps: [],
+  };
+
+  const executor = api.createStep6Executor({
+    addLog: async (message, level = 'info') => {
+      events.logs.push({ message, level });
+    },
+    completeStepFromBackground: async (step) => {
+      events.completedSteps.push(step);
+    },
+    ensureContentScriptReadyOnTab: async (sourceName, tabId, options) => {
+      events.ensured.push({ sourceName, tabId, options });
+    },
+    getTabId: async () => 42,
+    isTabAlive: async () => true,
+    registrationSuccessWaitMs: 0,
+    sendToContentScriptResilient: async (sourceName, message) => {
+      events.messages.push({ sourceName, message });
+      return {
+        plusFreeOfferAvailable: true,
+        plusFreeOfferLabel: 'Free offer',
+        plusFreeOfferCheckedAt: '2026-05-17T00:00:00.000Z',
+        url: 'https://chatgpt.com/',
+      };
+    },
+    setState: async (updates) => {
+      events.stateUpdates.push(updates);
+    },
+    SIGNUP_PAGE_INJECT_FILES: ['content/signup-page.js'],
+    sleepWithStop: async () => {},
+  });
+
+  await executor.executeStep6();
+
+  assert.equal(events.ensured.length, 1);
+  assert.equal(events.ensured[0].sourceName, 'signup-page');
+  assert.equal(events.messages[0].message.type, 'CHECK_PLUS_FREE_OFFER');
+  assert.deepStrictEqual(events.stateUpdates, [
+    {
+      plusFreeOfferAvailable: true,
+      plusFreeOfferLabel: 'Free offer',
+      plusFreeOfferCheckedAt: '2026-05-17T00:00:00.000Z',
+      plusFreeOfferUrl: 'https://chatgpt.com/',
+    },
+  ]);
+  assert.deepStrictEqual(events.completedSteps, [6]);
+  assert.ok(events.logs.some(({ message }) => /检测到 Plus 试用入口/.test(message)));
+});
+
 test('step 7 retries up to configured limit and then fails', async () => {
   const source = fs.readFileSync('background/steps/oauth-login.js', 'utf8');
   const globalScope = {};

@@ -77,6 +77,10 @@
         proxyAddress,
         hotmailClientId: hotmailCredentials.clientId,
         hotmailRefreshToken: hotmailCredentials.refreshToken,
+        plusFreeOfferAvailable: Boolean(state.plusFreeOfferAvailable),
+        plusFreeOfferCheckedAt: String(state.plusFreeOfferCheckedAt || '').trim(),
+        plusFreeOfferLabel: String(state.plusFreeOfferLabel || '').trim(),
+        plusFreeOfferUrl: String(state.plusFreeOfferUrl || '').trim(),
         session: sessionResult.payload,
         sessionStatus: Number(sessionResult.status) || 0,
       };

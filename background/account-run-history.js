@@ -279,6 +279,10 @@
         source,
         autoRunContext: source === 'auto' ? autoRunContext : null,
         plusModeEnabled: Boolean(record.plusModeEnabled),
+        plusFreeOfferAvailable: Boolean(record.plusFreeOfferAvailable),
+        plusFreeOfferCheckedAt: String(record.plusFreeOfferCheckedAt || '').trim(),
+        plusFreeOfferLabel: String(record.plusFreeOfferLabel || '').trim(),
+        plusFreeOfferUrl: String(record.plusFreeOfferUrl || '').trim(),
         contributionMode: Boolean(record.contributionMode),
       };
     }
@@ -355,6 +359,10 @@
         source,
         autoRunContext,
         plusModeEnabled: Boolean(state.plusModeEnabled),
+        plusFreeOfferAvailable: Boolean(state.plusFreeOfferAvailable),
+        plusFreeOfferCheckedAt: String(state.plusFreeOfferCheckedAt || '').trim(),
+        plusFreeOfferLabel: String(state.plusFreeOfferLabel || '').trim(),
+        plusFreeOfferUrl: String(state.plusFreeOfferUrl || '').trim(),
         contributionMode: Boolean(state.contributionMode),
       };
     }

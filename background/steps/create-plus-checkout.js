@@ -60,6 +60,29 @@
       return paymentMethod === PLUS_PAYMENT_METHOD_GOPAY ? 'GoPay' : 'PayPal';
     }
 
+    function normalizePlusFreeOfferSummary(summary = {}) {
+      return {
+        plusFreeOfferAvailable: Boolean(summary?.available || summary?.plusFreeOfferAvailable),
+        plusFreeOfferLabel: String(summary?.label || summary?.plusFreeOfferLabel || '').trim(),
+        plusFreeOfferCheckedAt: String(summary?.checkedAt || summary?.plusFreeOfferCheckedAt || new Date().toISOString()).trim(),
+        plusFreeOfferUrl: String(summary?.url || summary?.plusFreeOfferUrl || '').trim(),
+      };
+    }
+
+    async function persistPlusFreeOfferSummary(summary = {}) {
+      if (typeof setState !== 'function') {
+        return null;
+      }
+      const updates = normalizePlusFreeOfferSummary(summary);
+      await setState(updates);
+      if (updates.plusFreeOfferAvailable) {
+        await addLog(`步骤 6：检测到 Plus 试用入口（${updates.plusFreeOfferLabel || 'Free offer'}），当前账号有试用资格。`, 'ok');
+      } else {
+        await addLog('步骤 6：未检测到 Free offer / Claim offer，后续会继续用 Checkout 今日应付金额做最终确认。', 'warn');
+      }
+      return updates;
+    }
+
     async function openFreshChatGptTabForCheckoutCreate() {
       const tab = await chrome.tabs.create({ url: PLUS_CHECKOUT_ENTRY_URL, active: true });
       const tabId = Number(tab?.id);
@@ -214,6 +237,7 @@
       if (sessionResult?.error) {
         throw new Error(sessionResult.error);
       }
+      await persistPlusFreeOfferSummary(sessionResult?.plusFreeOfferSummary || {});
       return String(sessionResult?.accessToken || sessionResult?.session?.accessToken || '').trim();
     }
 
@@ -345,6 +369,16 @@
         injectSource: PLUS_CHECKOUT_SOURCE,
         logMessage: '步骤 6：正在等待 ChatGPT 页面完成加载，再继续创建订阅页...',
       });
+
+      const homeState = await sendTabMessageUntilStopped(tabId, PLUS_CHECKOUT_SOURCE, {
+        type: 'PLUS_CHECKOUT_GET_STATE',
+        source: 'background',
+        payload: {},
+      });
+      if (homeState?.error) {
+        throw new Error(homeState.error);
+      }
+      await persistPlusFreeOfferSummary(homeState?.plusFreeOfferSummary || {});
 
       const result = await sendTabMessageUntilStopped(tabId, PLUS_CHECKOUT_SOURCE, {
         type: 'CREATE_PLUS_CHECKOUT',
